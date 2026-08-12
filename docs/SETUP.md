@@ -11,17 +11,25 @@
 
 ---
 
-## 第一步：把代码放上 GitHub（约 5 分钟）
+## 第一步：把代码放上 GitHub（约 5 分钟，全自动）
 
-1. 打开 https://github.com ，注册一个**免费账号**（已有就直接登录）。
-2. 登录后点右上角 `+` → `New repository`（新建仓库）。
-3. Repository name 填：`voice-todo`
-4. 选 **Private**（私有，别人看不到）。
-5. **不要**勾选任何初始化选项（不要 README，不要 .gitignore，不要 License）。
-6. 点 `Create repository` 创建。
-7. 创建完成后，页面上会显示一串命令。记下你的仓库网址（形如 `https://github.com/你的用户名/voice-todo.git`）。
+先注册一个**免费 GitHub 账号**：打开 https://github.com → 注册（已有就直接登录，登录状态留在浏览器里即可）。
 
-> 注：如果你不懂 git 命令，最后一步的"上传代码"这一步告诉我，我来帮你准备一键上传脚本。
+然后运行项目里的一键上传脚本：
+
+1. 打开文件夹 `D:\CODEX\20260812-voice-todo`
+2. 双击文件 `upload_to_github.ps1`（若提示选择打开方式，选 PowerShell；若被系统阻止，右键 → 使用 PowerShell 运行）
+3. 脚本会自动：
+   - 检测/安装 GitHub 官方命令行工具（会先问你是否安装，选 Y）
+   - 弹出浏览器让你登录 GitHub（按提示点授权即可）
+   - 自动创建**私有仓库**并上传全部代码
+   - 自动打开编译任务页面
+4. 如果双击没反应，就打开 PowerShell 手动运行：
+   ```
+   powershell -ExecutionPolicy Bypass -File D:\CODEX\20260812-voice-todo\upload_to_github.ps1
+   ```
+
+> 不需要任何 git 知识，脚本会带你走完每一步。
 
 ---
 
