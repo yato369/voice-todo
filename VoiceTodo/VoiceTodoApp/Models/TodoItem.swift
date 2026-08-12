@@ -4,6 +4,7 @@ import SwiftData
 /// Single source of truth: one record is both a to-do and a calendar item.
 @Model
 final class TodoItem {
+    var id: UUID = UUID()
     var text: String
     var audioFileName: String?
     var createdAt: Date

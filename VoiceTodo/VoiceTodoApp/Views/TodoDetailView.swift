@@ -51,9 +51,7 @@ struct TodoDetailView: View {
 
             Section {
                 Button("删除待办", role: .destructive) {
-                    if let id = item.id {
-                        NotificationService.shared.cancelReminder(id: id.uuidString)
-                    }
+                    NotificationService.shared.cancelReminder(id: item.id.uuidString)
                     try? storage.delete(item)
                 }
             }

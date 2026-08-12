@@ -43,9 +43,7 @@ struct CalendarView: View {
                         .onDelete { offsets in
                             for index in offsets {
                                 let item = itemsOnSelectedDate[index]
-                                if let id = item.id {
-                                    NotificationService.shared.cancelReminder(id: id.uuidString)
-                                }
+                                NotificationService.shared.cancelReminder(id: item.id.uuidString)
                                 try? storage.delete(item)
                             }
                         }
@@ -145,8 +143,8 @@ struct CalendarView: View {
     private func toggle(_ item: TodoItem) {
         item.isCompleted.toggle()
         item.completedAt = item.isCompleted ? Date() : nil
-        if item.isCompleted, let id = item.id {
-            NotificationService.shared.cancelReminder(id: id.uuidString)
+        if item.isCompleted {
+            NotificationService.shared.cancelReminder(id: item.id.uuidString)
         }
         try? storage.save()
     }

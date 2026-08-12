@@ -46,23 +46,19 @@ struct ReminderEditView: View {
         }
         item.reminderDate = date
         try? storage.save()
-        if let id = item.id {
-            NotificationService.shared.scheduleReminder(
-                id: id.uuidString,
-                title: "待办提醒",
-                body: item.text,
-                at: date
-            )
-        }
+        NotificationService.shared.scheduleReminder(
+            id: item.id.uuidString,
+            title: "待办提醒",
+            body: item.text,
+            at: date
+        )
         dismiss()
     }
 
     private func removeReminder() {
         item.reminderDate = nil
         try? storage.save()
-        if let id = item.id {
-            NotificationService.shared.cancelReminder(id: id.uuidString)
-        }
+        NotificationService.shared.cancelReminder(id: item.id.uuidString)
         dismiss()
     }
 }
