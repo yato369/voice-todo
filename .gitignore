@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# Xcode
+VoiceTodo/VoiceTodo.xcodeproj/
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Misc
+*.ipa

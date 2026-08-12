@@ -1,0 +1,47 @@
+name: Build iOS App
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build unsigned IPA on free macOS runner
+    runs-on: macos-15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: VoiceTodo
+        run: xcodegen generate
+
+      - name: Build archive (no signing)
+        working-directory: VoiceTodo
+        run: |
+          xcodebuild \
+            -project VoiceTodo.xcodeproj \
+            -scheme VoiceTodoApp \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/VoiceTodo.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            archive
+
+      - name: Create unsigned IPA
+        working-directory: VoiceTodo
+        run: |
+          mkdir -p build/ipa/Payload
+          cp -R build/VoiceTodo.xcarchive/Products/Applications/VoiceTodoApp.app build/ipa/Payload/
+          cd build/ipa
+          zip -r VoiceTodo.ipa Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceTodo-ipa
+          path: VoiceTodo/build/ipa/VoiceTodo.ipa
