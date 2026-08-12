@@ -83,7 +83,7 @@
 - 首次使用引导授权，拒绝时给出解释和去设置开启的引导。
 
 ## 6. 技术要点（MVP 内）
-- 语言/框架：Swift + SwiftUI，iOS 26.6。
+- 语言/框架：Swift + SwiftUI，目标设备 iOS 26.6（工程最低版本 18.0，因 CI Xcode 限制）。
 - 存储：SwiftData。
 - 转写：`SFSpeechRecognizer` + `SFSpeechAudioBufferRecognitionRequest` 或文件识别请求。
 - 录音：AVAudioRecorder 输出 m4a。

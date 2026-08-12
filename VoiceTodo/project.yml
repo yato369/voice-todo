@@ -2,7 +2,7 @@ name: VoiceTodo
 options:
   bundleIdPrefix: com.voicetodo
   deploymentTarget:
-    iOS: "26.0"
+    iOS: "18.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
 targets:
