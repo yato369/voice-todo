@@ -19,7 +19,7 @@ final class AudioRecorder: NSObject, ObservableObject, AudioRecorderProtocol, AV
 
     /// Requests microphone permission, then starts recording. Returns the output URL.
     func startRecording() async throws -> URL {
-        let granted = await AVAudioApplication.requestRecordPermission()
+        let granted = await requestMicrophonePermission()
         guard granted else {
             throw RecordingError.microphoneDenied
         }
@@ -49,8 +49,8 @@ final class AudioRecorder: NSObject, ObservableObject, AudioRecorderProtocol, AV
         self.currentTime = 0
 
         self.timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            guard let self, let self.recorder else { return }
-            self.currentTime = self.recorder.currentTime
+            guard let self, let rec = self.recorder else { return }
+            self.currentTime = rec.currentTime
         }
         return url
     }
@@ -61,6 +61,24 @@ final class AudioRecorder: NSObject, ObservableObject, AudioRecorderProtocol, AV
         recorder?.stop()
         recorder = nil
         isRecording = false
+    }
+
+    private func requestMicrophonePermission() async -> Bool {
+        let session = AVAudioSession.sharedInstance()
+        switch session.recordPermission {
+        case .granted:
+            return true
+        case .denied:
+            return false
+        case .undetermined:
+            return await withCheckedContinuation { continuation in
+                session.requestRecordPermission { granted in
+                    continuation.resume(returning: granted)
+                }
+            }
+        @unknown default:
+            return false
+        }
     }
 
     private func recordingsDirectory() throws -> URL {

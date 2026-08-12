@@ -14,7 +14,7 @@ struct SettingsView: View {
                 Section("权限") {
                     PermissionRow(
                         title: "麦克风",
-                        granted: AVAudioApplication.recordPermission == .granted
+                        granted: AVAudioSession.sharedInstance().recordPermission == .granted
                     )
                     PermissionRow(
                         title: "语音识别",
