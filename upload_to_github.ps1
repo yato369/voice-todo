@@ -6,6 +6,24 @@ $ErrorActionPreference = "Stop"
 $ROOT = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ROOT
 
+# ---------- 0. 自动探测本地代理（提升访问 GitHub 的稳定性）----------
+function Detect-Proxy {
+    param([int[]]$Ports = @(7890, 7891, 10809, 10808, 1080, 8118, 8889, 4780))
+    foreach ($p in $Ports) {
+        $ok = Test-NetConnection -ComputerName 127.0.0.1 -Port $p -WarningAction SilentlyContinue -InformationLevel Quiet
+        if ($ok) { return "http://127.0.0.1:$p" }
+    }
+    return $null
+}
+$proxy = Detect-Proxy
+if ($proxy) {
+    Write-Host ("[网络] 检测到本地代理 {0}，将使用它访问 GitHub。" -f $proxy) -ForegroundColor DarkGray
+    $env:HTTP_PROXY = $proxy
+    $env:HTTPS_PROXY = $proxy
+} else {
+    Write-Host "[网络] 未检测到本地代理，将直连 GitHub（可能不稳定）。" -ForegroundColor DarkGray
+}
+
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "  语音待办 - 一键上传 GitHub" -ForegroundColor Cyan
