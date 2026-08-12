@@ -1,6 +1,6 @@
-# 一键上传到 GitHub 并触发自动编译
+﻿# 一键上传到 GitHub 并触发自动编译
 # 使用 GitHub 官方命令行工具 gh（浏览器登录，最安全简单）
-# 用法：右键 -> 使用 PowerShell 运行（或:  powershell -ExecutionPolicy Bypass -File upload_to_github.ps1）
+# 用法: powershell -ExecutionPolicy Bypass -File upload_to_github.ps1
 
 $ErrorActionPreference = "Stop"
 $ROOT = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -41,7 +41,7 @@ Write-Host "[OK] 找到 gh。" -ForegroundColor Green
 if (-not (gh auth status 2>$null)) {
     Write-Host ""
     Write-Host "[登录] 即将打开浏览器窗口，请按提示登录 GitHub 账号。" -ForegroundColor Cyan
-    Write-Host "       （只要登录，权限只需“公共仓库+私有仓库”即可）"
+    Write-Host "       （只要登录，权限只需创建仓库即可）"
     gh auth login --hostname github.com --git-protocol https --web
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[错误] 登录失败。请重跑脚本。"
@@ -75,7 +75,7 @@ Write-Host "  打开任务页面试查看进度:" -ForegroundColor White
 Write-Host "  $url" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "[打开] 正在浏览器打开任务页..." 
+Write-Host "[打开] 正在浏览器打开任务页..."
 Start-Process $url
 
 Write-Host ""
