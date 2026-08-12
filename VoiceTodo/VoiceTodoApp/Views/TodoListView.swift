@@ -21,8 +21,8 @@ struct TodoListView: View {
                 if items.isEmpty {
                     ContentUnavailableView(
                         "还没有待办",
-                        systemImage: "mic.fill",
-                        description: Text("点击右下角按钮，说一句话即可创建待办。")
+                        systemImage: "checklist",
+                        description: Text("点击右下角按钮，语音或文字输入创建待办。")
                     )
                 } else {
                     List {
@@ -54,8 +54,8 @@ struct TodoListView: View {
         Button {
             showRecorder = true
         } label: {
-            Image(systemName: "mic.fill")
-                .font(.title2)
+            Image(systemName: "plus")
+                .font(.title2.weight(.semibold))
                 .frame(width: 56, height: 56)
                 .background(Color.accentColor)
                 .foregroundStyle(.white)

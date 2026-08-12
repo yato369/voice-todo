@@ -1,7 +1,7 @@
 import SwiftUI
 import SwiftData
 
-/// Record a voice memo, transcribe it, and save it as a to-do item.
+/// Record a voice memo or type text, then save it as a to-do item.
 struct RecordView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -9,6 +9,9 @@ struct RecordView: View {
     @StateObject private var recorder = AudioRecorder()
     @State private var phase: Phase = .idle
     @State private var errorMessage: String?
+    @State private var mode: InputMode = .voice
+    @State private var textInput: String = ""
+    @FocusState private var isTextEditorFocused: Bool
 
     private let transcriber: SpeechTranscriberProtocol = SpeechTranscriber()
     private var storage: StorageServiceProtocol { StorageService(context: modelContext) }
@@ -19,7 +22,51 @@ struct RecordView: View {
         case transcribing
     }
 
+    enum InputMode: String, CaseIterable {
+        case voice = "语音"
+        case text = "文字"
+    }
+
     var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                Picker("输入方式", selection: $mode) {
+                    ForEach(InputMode.allCases, id: \.self) { mode in
+                        Label(mode.rawValue, systemImage: mode == .voice ? "mic" : "keyboard")
+                            .labelStyle(.titleAndIcon)
+                            .tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.top, 8)
+
+                if mode == .voice {
+                    voiceContent
+                } else {
+                    textContent
+                }
+            }
+            .navigationTitle("新建待办")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        recorder.stopRecording()
+                        dismiss()
+                    }
+                }
+            }
+            .task {
+                _ = await SpeechTranscriber.requestAuthorization()
+            }
+        }
+    }
+
+    // MARK: - Voice input
+
+    @ViewBuilder
+    private var voiceContent: some View {
         VStack(spacing: 32) {
             Spacer()
 
@@ -37,7 +84,7 @@ struct RecordView: View {
             }
 
             Button {
-                handleTap()
+                handleVoiceTap()
             } label: {
                 Image(systemName: phase == .recording ? "stop.circle.fill" : "mic.circle.fill")
                     .font(.system(size: 88))
@@ -56,19 +103,60 @@ struct RecordView: View {
             }
 
             Spacer()
-
-            Button("取消") {
-                recorder.stopRecording()
-                dismiss()
-            }
-            .padding(.bottom, 16)
-        }
-        .task {
-            _ = await SpeechTranscriber.requestAuthorization()
         }
     }
 
-    private func handleTap() {
+    // MARK: - Text input
+
+    @ViewBuilder
+    private var textContent: some View {
+        VStack(spacing: 16) {
+            TextEditor(text: $textInput)
+                .focused($isTextEditorFocused)
+                .font(.body)
+                .padding(12)
+                .frame(maxHeight: .infinity)
+                .background(Color(.systemGray6))
+                .cornerRadius(12)
+                .overlay(alignment: .topLeading) {
+                    if textInput.isEmpty {
+                        Text("在这里输入待办事项…")
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 20)
+                            .allowsHitTesting(false)
+                    }
+                }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
+
+            Button {
+                saveTextInput()
+            } label: {
+                Label("保存", systemImage: "checkmark.circle.fill")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(textInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .padding(.horizontal)
+        }
+        .padding(.horizontal, 8)
+        .onAppear {
+            isTextEditorFocused = true
+        }
+    }
+
+    // MARK: - Actions
+
+    private func handleVoiceTap() {
         errorMessage = nil
         if phase == .recording {
             stopAndTranscribe()
@@ -126,6 +214,19 @@ struct RecordView: View {
                 errorMessage = "转写失败：\(error.localizedDescription)"
                 phase = .idle
             }
+        }
+    }
+
+    private func saveTextInput() {
+        let cleaned = textInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return }
+
+        let item = TodoItem(text: cleaned)
+        do {
+            try storage.insert(item)
+            dismiss()
+        } catch {
+            errorMessage = "保存失败：\(error.localizedDescription)"
         }
     }
 
