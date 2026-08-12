@@ -10,19 +10,27 @@ personal use on iOS 26.6, distributed via AltStore free signing.
 
 ## Structure
 
-- `docs/`: project documents (MVP, PRD, decisions)
-- `VoiceTodo/`: Xcode project (to be created)
+- `docs/`: project documents (MVP, PRD, SETUP, decisions)
+- `VoiceTodo/`: iOS project source
+  - `project.yml`: XcodeGen config (generates `VoiceTodo.xcodeproj`)
   - `VoiceTodoApp/`: main app target
-    - `Models/`: data models (VoiceRecord, TodoItem)
-    - `Services/`: services (SpeechTranscriber, StorageService, AudioRecorder, NotificationService)
-    - `Views/`: SwiftUI views (RecordView, TodoListView, CalendarView, TodoDetailView)
-  - `VoiceTodo.xcodeproj`: Xcode project file
+    - `Models/`: data models (TodoItem — single source of truth)
+    - `Services/`: services (AudioRecorder, SpeechTranscriber, StorageService, NotificationService)
+    - `Views/`: SwiftUI views (MainTabView, RecordView, TodoListView, CalendarView, TodoDetailView, ReminderEditView, SettingsView)
+- `.github/workflows/build.yml`: builds unsigned IPA on free macOS GitHub runner
 
 ## Commands
 
-- Open: `open VoiceTodo/VoiceTodo.xcodeproj`
-- Build: Xcode 26, iOS 26.6 simulator / real device
-- Verify: build succeeds; run on simulator; Speech framework requires a real device for full testing
+- Generate Xcode project (macOS only): `xcodegen generate` in `VoiceTodo/`
+- Build unsigned IPA (macOS only): workflow in `.github/workflows/build.yml`
+- Local code review / checks: none needed — Swift sources, no build available on Windows
+- On this Windows machine: edit code only; never try to build iOS locally
+
+## Development Flow (Windows)
+
+- Code changes are committed on this Windows machine.
+- Push to GitHub `main` → GitHub Actions compiles on a free macOS runner → download `VoiceTodo-ipa` artifact → install via Sideloadly/AltStore per `docs/SETUP.md`.
+- Every committed change must remain buildable by `xcodegen generate` + `xcodebuild archive` (validated by CI).
 
 ## Conventions
 
