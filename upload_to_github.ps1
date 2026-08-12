@@ -38,16 +38,22 @@ if (-not $gh) {
 Write-Host "[OK] 找到 gh。" -ForegroundColor Green
 
 # ---------- 2. 登录 ----------
-if (-not (gh auth status 2>$null)) {
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$null = & gh auth status 2>&1
+$loggedIn = ($LASTEXITCODE -eq 0)
+if (-not $loggedIn) {
     Write-Host ""
     Write-Host "[登录] 即将打开浏览器窗口，请按提示登录 GitHub 账号。" -ForegroundColor Cyan
     Write-Host "       （只要登录，权限只需创建仓库即可）"
-    gh auth login --hostname github.com --git-protocol https --web
+    & gh auth login --hostname github.com --git-protocol https --web
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[错误] 登录失败。请重跑脚本。"
+        $ErrorActionPreference = $prevEap
         exit 1
     }
 }
+$ErrorActionPreference = $prevEap
 Write-Host "[OK] 已登录 GitHub。" -ForegroundColor Green
 
 # ---------- 3. 仓库名 ----------
@@ -58,15 +64,20 @@ if ([string]::IsNullOrWhiteSpace($repoName)) { $repoName = $defaultName }
 
 # ---------- 4. 创建私有仓库并推送 ----------
 Write-Host "[上传] 正在创建私有仓库 $repoName 并推送代码 ..." -ForegroundColor Cyan
-gh repo create $repoName --private --source $ROOT --push
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+& gh repo create $repoName --private --source $ROOT --push
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[错误] 创建/推送失败。可能仓库已存在，可重跑时换一个名字。" -ForegroundColor Red
+    $ErrorActionPreference = $prevEap
     exit 1
 }
+$ErrorActionPreference = $prevEap
 Write-Host "[OK] 代码已上传。" -ForegroundColor Green
 
 # ---------- 5. 打开 Actions 页面 ----------
-$login = gh api user -q .login
+$login = & gh api user -q .login 2>&1 | Out-String
+$login = $login.Trim()
 $url = "https://github.com/$login/$repoName/actions"
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
