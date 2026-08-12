@@ -28,12 +28,17 @@ if (-not $gh) {
         exit 0
     }
     Write-Host "[安装] 正在通过 winget 安装 GitHub CLI ..."
-    winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "[错误] 安装失败。请手动安装后重试：https://cli.github.com/" -ForegroundColor Red
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    & winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements 2>&1 | Out-String | Write-Host
+    $ErrorActionPreference = $prevEap
+    # 刷新 PATH（winget 装好后当前会话可能还找不到 gh）
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $gh = Get-Command gh -ErrorAction SilentlyContinue
+    if (-not $gh) {
+        Write-Host "[错误] 没找到 gh 命令。请重开一个 PowerShell 窗口后重跑脚本。" -ForegroundColor Red
         exit 1
     }
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 }
 Write-Host "[OK] 找到 gh。" -ForegroundColor Green
 
