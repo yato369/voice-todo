@@ -85,15 +85,35 @@ Write-Host ""
 $repoName = Read-Host "仓库名称 [回车用默认 $defaultName]"
 if ([string]::IsNullOrWhiteSpace($repoName)) { $repoName = $defaultName }
 
-# ---------- 4. 创建私有仓库并推送 ----------
-Write-Host "[上传] 正在创建私有仓库 $repoName 并推送代码 ..." -ForegroundColor Cyan
+# ---------- 4. 创建/推送 ----------
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
-& gh repo create $repoName --private --source $ROOT --push
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "[错误] 创建/推送失败。可能仓库已存在，可重跑时换一个名字。" -ForegroundColor Red
-    $ErrorActionPreference = $prevEap
-    exit 1
+
+# 先查仓库是否已存在
+& gh repo view "$repoName" 2>$null | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    Write-Host ("[上传] 仓库 $repoName 已存在，直接推送最新代码 ...") -ForegroundColor Cyan
+    $login2 = & gh api user -q .login 2>&1 | Out-String
+    $login2 = $login2.Trim()
+    $originUrl = "https://github.com/$login2/$repoName.git"
+    $hasOrigin = (& git remote get-url origin 2>$null)
+    if (-not $hasOrigin) {
+        & git remote add origin $originUrl
+    }
+    git push -u origin main
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[错误] 推送失败。请检查网络后重试。" -ForegroundColor Red
+        $ErrorActionPreference = $prevEap
+        exit 1
+    }
+} else {
+    Write-Host "[上传] 正在创建私有仓库 $repoName 并推送代码 ..." -ForegroundColor Cyan
+    & gh repo create $repoName --private --source $ROOT --push
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[错误] 创建/推送失败。可重跑时换一个名字。" -ForegroundColor Red
+        $ErrorActionPreference = $prevEap
+        exit 1
+    }
 }
 $ErrorActionPreference = $prevEap
 Write-Host "[OK] 代码已上传。" -ForegroundColor Green
