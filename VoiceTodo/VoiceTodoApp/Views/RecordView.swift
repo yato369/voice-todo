@@ -6,10 +6,11 @@ struct RecordView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
+    let mode: InputMode
+
     @StateObject private var recorder = AudioRecorder()
     @State private var phase: Phase = .idle
     @State private var errorMessage: String?
-    @State private var mode: InputMode = .voice
     @State private var textInput: String = ""
     @FocusState private var isTextEditorFocused: Bool
 
@@ -22,32 +23,28 @@ struct RecordView: View {
         case transcribing
     }
 
-    enum InputMode: String, CaseIterable {
-        case voice = "语音"
-        case text = "文字"
+    enum InputMode {
+        case voice
+        case text
+    }
+
+    private var title: String {
+        switch mode {
+        case .voice: return "语音输入"
+        case .text: return "文字输入"
+        }
     }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                Picker("输入方式", selection: $mode) {
-                    ForEach(InputMode.allCases, id: \.self) { mode in
-                        Label(mode.rawValue, systemImage: mode == .voice ? "mic" : "keyboard")
-                            .labelStyle(.titleAndIcon)
-                            .tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.top, 8)
-
+            Group {
                 if mode == .voice {
                     voiceContent
                 } else {
                     textContent
                 }
             }
-            .navigationTitle("新建待办")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
