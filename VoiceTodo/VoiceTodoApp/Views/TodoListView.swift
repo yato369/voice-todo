@@ -430,13 +430,12 @@ struct TodoListView: View {
         }
         try? storage.save()
 
-        // Once the drop animation settles, rebuild from live data so an empty
-        // slot that was consumed by this drop (or added to a list we emptied)
-        // is replaced by the now-correct placeholder. Deferred so it never runs
-        // mid-transaction.
-        DispatchQueue.main.async {
-            self.refreshDisplayRows()
-        }
+        // Rebuild the row list from live data so an empty slot that was
+        // consumed by this drop (or freshly added to a list we emptied) is
+        // replaced with the correct placeholder. This is a plain `@State`
+        // write — the same kind used above for `displayRows` — so it does not
+        // interfere with the drop transaction.
+        refreshDisplayRows()
     }
 
     // MARK: - Display row sync (rebuild from live data, no drag conflict)

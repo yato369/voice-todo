@@ -206,9 +206,9 @@ struct ManageListsView: View {
         // Reassign the parent, then reindex every sibling group following the
         // new pre-order so `position` stays consistent within each parent.
         moved.parent = newParent
-        var counters: [UUID?: Int] = [:]
+        var counters: [String: Int] = [:]
         for entry in arr {
-            let key = entry.list.parent?.id
+            let key = entry.list.parent?.id.uuidString ?? "root"
             entry.list.position = counters[key] ?? 0
             counters[key] = (counters[key] ?? 0) + 1
         }
