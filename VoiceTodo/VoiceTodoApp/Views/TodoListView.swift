@@ -3,16 +3,32 @@ import SwiftData
 
 struct TodoListView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.editMode) private var editMode
     @Query(sort: \TodoItem.createdAt, order: .reverse) private var items: [TodoItem]
     @Query(sort: \TodoList.position) private var lists: [TodoList]
     @Query(sort: \Tag.createdAt) private var tags: [Tag]
 
     @State private var activeSheet: SheetType?
+    @State private var listEditSheet: ListEditSheet?
     @State private var layout: ListLayout = .grouped
     @State private var filterListID: UUID?
     @State private var filterTagID: UUID?
 
     private var storage: StorageServiceProtocol { StorageService(context: modelContext) }
+
+    private var isEditing: Bool { editMode?.wrappedValue == .active }
+
+    /// Edit an existing list or create a sub-list under a parent.
+    enum ListEditSheet: Identifiable {
+        case edit(TodoList)
+        case newChild(TodoList)
+        var id: UUID {
+            switch self {
+            case .edit(let list): return list.id
+            case .newChild(let parent): return parent.id
+            }
+        }
+    }
 
     enum SheetType: Identifiable {
         case voice
@@ -145,6 +161,14 @@ struct TodoListView: View {
             .sheet(item: $activeSheet) { sheet in
                 RecordView(mode: sheet == .voice ? .voice : .text)
             }
+            .sheet(item: $listEditSheet) { sheet in
+                switch sheet {
+                case .edit(let list):
+                    EditListSheet(list: list)
+                case .newChild(let parent):
+                    EditListSheet(list: nil, parentPreset: parent)
+                }
+            }
             .onAppear {
                 ensureDefaultList()
             }
@@ -217,23 +241,32 @@ struct TodoListView: View {
             ForEach(groups) { group in
                 Section {
                     ForEach(group.items) { item in
-                        row(item)
+                        row(item, depth: group.depth)
                     }
                     .onDelete { offsets in delete(at: offsets, in: group) }
-                    .onMove { from, to in reorderItems(in: group, from: from, to: to) }
                 } header: {
                     groupHeader(group)
+                        .dropDestination(for: String.self) { payload, _ in
+                            moveDropped(payload, to: group.id)
+                        }
                 }
             }
         }
     }
 
-    /// A single to-do row: swipe = delete + move; long-press = context menu;
-    /// drag onto another row = reorder (same list) or change list (cross list).
-    private func row(_ item: TodoItem) -> some View {
-        TodoRow(item: item) {
-            toggle(item)
+    /// A single to-do row. In edit mode a drag handle (≡) appears: press it
+    /// and drag onto any row to reorder or change list; drop on a section
+    /// header to append to that list. Swipe = delete + move.
+    private func row(_ item: TodoItem, depth: Int) -> some View {
+        HStack(spacing: 10) {
+            if isEditing {
+                dragHandle(item)
+            }
+            TodoRow(item: item) {
+                toggle(item)
+            }
         }
+        .padding(.leading, depth > 0 ? CGFloat(depth) * 16 : 0)
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
                 deleteOne(item)
@@ -242,18 +275,17 @@ struct TodoListView: View {
             }
             moveSwipeButton(for: item)
         }
-        .contextMenu {
-            Button(role: .destructive) {
-                deleteOne(item)
-            } label: {
-                Label("删除", systemImage: "trash")
-            }
-            moveMenu(for: item)
-        }
-        .draggable(item.id.uuidString)
         .dropDestination(for: String.self) { payload, _ in
             dropPayload(payload, onto: item)
         }
+    }
+
+    private func dragHandle(_ item: TodoItem) -> some View {
+        Image(systemName: "line.3.horizontal")
+            .font(.body)
+            .foregroundStyle(.secondary)
+            .contentShape(Rectangle())
+            .draggable(item.id.uuidString)
     }
 
     private func groupHeader(_ group: ListGroup) -> some View {
@@ -274,6 +306,21 @@ struct TodoListView: View {
         }
         .font(.subheadline.weight(.semibold))
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .contextMenu {
+            if let list = group.list {
+                Button {
+                    listEditSheet = .edit(list)
+                } label: {
+                    Label("编辑名称 / 图标", systemImage: "pencil")
+                }
+                Button {
+                    listEditSheet = .newChild(list)
+                } label: {
+                    Label("新建子列表", systemImage: "folder.badge.plus")
+                }
+            }
+        }
     }
 
     // MARK: - Flat list
@@ -281,10 +328,14 @@ struct TodoListView: View {
     private var flatList: some View {
         List {
             ForEach(filteredItems) { item in
-                TodoRow(item: item) {
-                    toggle(item)
+                HStack(spacing: 10) {
+                    if isEditing {
+                        dragHandle(item)
+                    }
+                    TodoRow(item: item) {
+                        toggle(item)
+                    }
                 }
-                .contextMenu { moveMenu(for: item) }
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) { deleteOne(item) } label: {
                         Label("删除", systemImage: "trash")
@@ -351,17 +402,6 @@ struct TodoListView: View {
         }
     }
 
-    private func reorderItems(in group: ListGroup, from source: IndexSet, to destination: Int) {
-        // The unassigned fallback bucket has no stored list to persist order to.
-        guard group.list != nil, lists.contains(where: { $0.id == group.id }) else { return }
-        var arr = group.items
-        arr.move(fromOffsets: source, toOffset: destination)
-        for (index, item) in arr.enumerated() {
-            item.position = index
-        }
-        try? storage.save()
-    }
-
     /// Drag & drop onto a row: reorder within the same list, or move the
     /// dragged item into the target row's list at that position.
     @discardableResult
@@ -384,22 +424,6 @@ struct TodoListView: View {
     }
 
     // MARK: - Moving between lists
-
-    private func moveMenu(for item: TodoItem) -> some View {
-        Menu("移动到列表") {
-            ForEach(flattenedLists, id: \.list.id) { pair in
-                Button {
-                    assign(item, to: pair.list)
-                } label: {
-                    if item.list?.id == pair.list.id {
-                        Label(prefix(pair.depth) + pair.list.name, systemImage: "checkmark")
-                    } else {
-                        Text(prefix(pair.depth) + pair.list.name)
-                    }
-                }
-            }
-        }
-    }
 
     private func moveSwipeButton(for item: TodoItem) -> some View {
         Menu {

@@ -175,8 +175,8 @@ function render(){
     const groups=treeLists().map(([l,d])=>({l,d,items:db.items.filter(i=>i.list===l.id)}));
     let built=groups.map(g=>{
       if(!g.items.length)return '';
-      const head=`<div class="sec-head"><span class="dot" style="background:${g.l.color}"></span>${indentHTML(g.d)}&nbsp;${icons[g.l.icon]||'☑️'}&nbsp;${esc(g.l.name)}<span class="count">${g.items.length}</span></div>`;
-      return `<div class="card" data-secid="${g.l.id}">${head}${g.items.map(itemHTML).join('')}</div>`;
+      const head=`<div class="sec-head" data-sech="${g.l.id}" oncontextmenu="openForm(db_lists('${g.l.id}'));return false"><span class="dot" style="background:${g.l.color}"></span>${indentHTML(g.d)}&nbsp;${icons[g.l.icon]||'☑️'}&nbsp;${esc(g.l.name)}<span class="count">${g.items.length}</span></div>`;
+      return `<div class="card" data-secid="${g.l.id}">${head}${g.items.map(i=>itemHTML(i,g.d)).join('')}</div>`;
     }).join('');
     if(!built)html=card(empty('还没有待办<br>点右下角按钮，语音或文字输入创建待办'));
     else html=built;
@@ -189,7 +189,7 @@ function render(){
     const name=filterTag?('#'+filterTag):(filterListID?(dim[filterListID]?dim[filterListID].name:'筛选'):'全部');
     const color=filterTag?'#0a84ff':(filterListID?(dim[filterListID]?dim[filterListID].color:'#8e8e93'):'#8e8e93');
     const head=`<div class="sec-head"><span class="dot" style="background:${color}"></span>&nbsp;${icons[dim[filterListID]&&dim[filterListID].icon]||'☑️'}&nbsp;${esc(name)}<span class="count">${arr.length}</span></div>`;
-    html=`<div class="card" data-secid="__flat__">${head}${arr.map(itemHTML).join('')}</div>`;
+    html=`<div class="card" data-secid="__flat__">${head}${arr.map(i=>itemHTML(i,0)).join('')}</div>`;
     if(!arr.length)html=card(empty('暂无待办'));
   }
   c.innerHTML=html;
@@ -198,18 +198,23 @@ function render(){
 const empty=t=>`<div class="empty">${t}</div>`;
 const card=h=>`<div class="card">${h}</div>`;
 
-function itemHTML(i){
+function itemHTML(i,d=0){
   const bell=i.bell?`<span class="bell">🔔 ${i.bell}</span>`:'';
   const chips=(i.tags||[]).map(t=>`<span class="chip">#${esc(t)}</span>`).join('');
   const imgChip=i.imgs&&i.imgs.length?`<span class="chip">🖼 ${i.imgs.length}</span>`:'';
   const linkChip=i.links&&i.links.length?`<span class="chip">🔗 ${i.links.length}</span>`:'';
   const when=new Date(i.ts).toLocaleString('zh-Hans',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+  const indent=d>0?`style="padding-left:${d*16}px"`:'';
+  const grip=editing?`<span class="grip" title="按住拖动排序/换列表">≡</span>`:'';
+  const dragAttr=editing?'draggable="true"':'';
   return `
   <div class="item ${i.done?'done':''}"
        data-id="${i.id}"
-       draggable="true"
+       ${dragAttr}
        ondragstart="dragStart(event,'${i.id}')"
-       ondragend="dragEnd(event)">
+       ondragend="dragEnd(event)"
+       ${indent}>
+    ${grip}
     <div class="circle ${i.done?'done':''}" onclick="toggleItem('${i.id}')">${i.done?'✓':''}</div>
     <span class="col">
       <span class="txt">${esc(i.text)}</span>
@@ -219,6 +224,8 @@ function itemHTML(i){
     <button class="del" onclick="deleteItem('${i.id}')">✕</button>
   </div>`;
 }
+
+function db_lists(id){ return db.lists.find(x=>x.id===id); }
 
 // 拖动到小节标题区域切换列表
 function dragStart(e,id){e.dataTransfer.setData('text/plain',id);}
@@ -295,15 +302,14 @@ function moveMenu(id){
   modal(`<h3 style="text-align:center">移动到列表</h3>${rows}`);
 }
 
-// ⋯ 操作菜单：移动 / 详情
+// ⋯ 操作菜单：详情 / 删除（移动请用编辑模式拖动手柄）
 function moreMenu(id){
   modal(`<h3 style="text-align:center">操作</h3>
-    <div class="sheetrow" style="cursor:pointer" onclick="moveMenu('${id}')">
-      <span class="ico" style="background:#039BE5">➡️</span><span class="nm">移动到列表…</span></div>
     <div class="sheetrow" style="cursor:pointer" onclick="openDetail('${id}')">
       <span class="ico" style="background:#5E35B1">📝</span><span class="nm">详情（标签 / 图片 / 链接）</span></div>
     <div class="sheetrow" style="cursor:pointer" onclick="deleteItem('${id}');close()">
-      <span class="ico" style="background:#ff3b30">🗑</span><span class="nm">删除待办</span></div>`);
+      <span class="ico" style="background:#ff3b30">🗑</span><span class="nm">删除待办</span></div>
+    <div style="font-size:12px;color:var(--sub);padding:8px">排序 / 换列表：点右上 ✎ 进入编辑模式，按住 ≡ 拖动</div>`);
 }
 
 // 详情弹层：编辑内容、勾选标签、添加图片（本地读取）与链接
@@ -324,8 +330,8 @@ function openDetail(id){
     </div>`).join('');
   const imgThumbs=it.imgs.map((d,idx)=>`
     <div style="position:relative;width:88px;height:88px;margin:4px">
-      <img src="${d}" style="width:100%;height:100%;object-fit:cover;border-radius:8px">
-      <button class="iconbtn" style="position:absolute;top:-6px;right:-6px;background:#fff;border-radius:50%;color:var(--red);box-shadow:0 1px 4px rgba(0,0,0,.3);padding:2px 6px" onclick="delImg('${id}',${idx})">✕</button>
+      <img src="${d}" style="width:100%;height:100%;object-fit:cover;border-radius:8px;cursor:zoom-in" onclick="viewImg('${id}',${idx})">
+      <button class="iconbtn" style="position:absolute;top:-6px;right:-6px;background:#fff;border-radius:50%;color:var(--red);box-shadow:0 1px 4px rgba(0,0,0,.3);padding:2px 6px" onclick="event.stopPropagation();delImg('${id}',${idx})">✕</button>
     </div>`).join('');
   modal(`<h3>待办详情</h3>
     <div class="field"><label>内容</label><input type="text" id="dtext" value="${esc(it.text)}"></div>
@@ -381,6 +387,24 @@ function saveDetail(id){
   const t=(document.getElementById('dtext').value||'').trim();
   if(t)it.text=t;
   save(); close(); render(); toast('已保存');
+}
+
+// 图片全屏查看：黑底、点任意处关闭（对应 App 的 fullScreenCover）
+// 查看时暂存详情弹层内容，关闭后恢复。
+let viewerBackup=null;
+function viewImg(id,idx){
+  const it=db.items.find(x=>x.id===id); if(!it||!it.imgs[idx])return;
+  const m=document.getElementById('modal');
+  viewerBackup=m.innerHTML;
+  m.innerHTML=`<div style="position:fixed;inset:0;background:#000;z-index:60;display:flex;align-items:center;justify-content:center" onclick="closeViewer()">
+    <img src="${it.imgs[idx]}" style="max-width:100%;max-height:100%;object-fit:contain" onclick="event.stopPropagation()">
+    <button style="position:absolute;top:24px;right:24px;background:none;border:none;color:#fff;opacity:.85;font-size:28px;cursor:pointer" onclick="closeViewer()">✕</button>
+  </div>`;
+}
+function closeViewer(){
+  const m=document.getElementById('modal');
+  m.innerHTML='';
+  if(viewerBackup){ m.innerHTML=viewerBackup; viewerBackup=null; }
 }
 
 // ================= 列表管理 =================

@@ -14,6 +14,13 @@ struct TodoDetailView: View {
     @State private var newTagName: String = ""
     @State private var newLink: String = ""
     @State private var pickerItems: [PhotosPickerItem] = []
+    @State private var viewingImage: ViewingImage?
+
+    /// Identifiable wrapper so a full-screen cover can present a UIImage.
+    private struct ViewingImage: Identifiable {
+        let id = UUID()
+        let image: UIImage
+    }
 
     private var storage: StorageServiceProtocol { StorageService(context: modelContext) }
 
@@ -55,6 +62,40 @@ struct TodoDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear {
             audioPlayer?.stop()
+        }
+        .fullScreenCover(item: $viewingImage) { viewing in
+            ImageViewer(image: viewing.image)
+        }
+    }
+
+    /// Full-screen photo viewer: tap anywhere or the ✕ to dismiss.
+    private struct ImageViewer: View {
+        @Environment(\.dismiss) private var dismiss
+        let image: UIImage
+
+        var body: some View {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .onTapGesture { dismiss() }
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.title)
+                                .foregroundStyle(.white.opacity(0.85))
+                                .padding(20)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer()
+                }
+            }
         }
     }
 
@@ -164,6 +205,9 @@ struct TodoDetailView: View {
                     .frame(height: 90)
                     .clipped()
                     .cornerRadius(8)
+                    .onTapGesture {
+                        viewingImage = ViewingImage(image: image)
+                    }
             } else {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color(.systemGray5))

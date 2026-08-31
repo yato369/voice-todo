@@ -59,6 +59,13 @@ struct ManageListsView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
+                        Button {
+                            editingSheet = EditingSheet(list: entry.list, parentPreset: nil)
+                        } label: {
+                            Image(systemName: "square.and.pencil")
+                                .foregroundStyle(Color.accentColor)
+                        }
+                        .buttonStyle(.borderless)
                     }
                     .contextMenu {
                         Button {
@@ -152,7 +159,9 @@ struct ManageListsView: View {
 
 // MARK: - Create / edit sheet
 
-private struct EditListSheet: View {
+/// Create / edit a list: name, parent (nesting), color, icon.
+/// Also presented from TodoListView (long-press a section header).
+struct EditListSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \TodoList.position) private var lists: [TodoList]
