@@ -126,7 +126,7 @@ struct TodoListView: View {
                     )
                 } else {
                     VStack(spacing: 0) {
-                        breadcrumbChips
+                        chipRows
                         taskList
                     }
                 }
@@ -166,50 +166,54 @@ struct TodoListView: View {
         }
     }
 
-    // MARK: - Top chips (persistent breadcrumb navigation)
+    // MARK: - Top chips (persistent multi-level stack)
 
-    /// One permanent breadcrumb strip: "全部" + every ancestor of the current
-    /// folder down to it (root → … → current), then the current folder's
-    /// children for drilling deeper. Because each visited level stays on screen
-    /// as its own crumb, no chips ever disappear — at 2nd/3rd/4th+ level you
-    /// always see the full chain and can tap any crumb to jump back.
-    private var breadcrumbChips: some View {
-        let path = current.map { ancestry(of: $0) } ?? []      // ancestors + current
-        let drillDowns = (current?.children ?? rootLists)
-            .sorted { $0.position < $1.position }              // drill targets
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                chip(
-                    title: "全部",
-                    icon: "tray.full",
-                    isSelected: currentListID == nil,
-                    count: items.count,
-                    list: nil
-                ) { currentListID = nil; filterTagID = nil }
-                ForEach(path) { list in
-                    chip(
-                        title: list.name,
-                        icon: list.iconName ?? "checklist",
-                        color: list.color,
-                        isSelected: currentListID == list.id,
-                        count: totalItems(of: list),
-                        list: list
-                    ) { currentListID = list.id }
-                }
-                ForEach(drillDowns) { list in
-                    chip(
-                        title: list.name,
-                        icon: list.iconName ?? "checklist",
-                        color: list.color,
-                        isSelected: currentListID == list.id,
-                        count: totalItems(of: list),
-                        list: list
-                    ) { currentListID = list.id }
-                }
+    /// A persistent, multi-level chip stack. Each row shows the children of one
+    /// node along the path from the virtual root ("全部") down to the current
+    /// folder. Rows only ever get ADDED as you drill deeper — they never
+    /// disappear, so 2nd/3rd/4th+ level chips all stay visible. Row order:
+    ///   全部+所有根文件夹 → 选中根的子级 → … → 当前文件夹的子级
+    private var chipRows: some View {
+        let ancestors = current.map { ancestry(of: $0) } ?? [] // [root…current]
+        let nodes: [TodoList?] = [nil] + ancestors.map { $0 as TodoList? }
+        return VStack(spacing: 0) {
+            ForEach(Array(nodes.enumerated()), id: \.offset) { _, node in
+                folderChipRow(node: node)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
         }
+    }
+
+    private func folderChipRow(node: TodoList?) -> some View {
+        let children = node == nil ? rootLists : node!.children.sorted { $0.position < $1.position }
+        // Leaf folders host no children → skip that row, but parents above stay.
+        if children.isEmpty, node != nil { return AnyView(EmptyView()) }
+        return AnyView(
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    if node == nil {
+                        chip(
+                            title: "全部",
+                            icon: "tray.full",
+                            isSelected: currentListID == nil,
+                            count: items.count,
+                            list: nil
+                        ) { currentListID = nil; filterTagID = nil }
+                    }
+                    ForEach(children) { list in
+                        chip(
+                            title: list.name,
+                            icon: list.iconName ?? "checklist",
+                            color: list.color,
+                            isSelected: currentListID == list.id,
+                            count: totalItems(of: list),
+                            list: list
+                        ) { currentListID = list.id }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
+            }
+        )
     }
 
     /// A single navigation/filter chip. When `list` is non-nil it is also a
