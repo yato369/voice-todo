@@ -178,6 +178,7 @@ struct TodoListView: View {
                     title: "全部",
                     icon: "tray.full",
                     isSelected: currentListID == nil,
+                    count: items.count,
                     list: nil
                 ) { currentListID = nil; filterTagID = nil }
                 ForEach(roots) { list in
@@ -186,6 +187,7 @@ struct TodoListView: View {
                         icon: list.iconName ?? "checklist",
                         color: list.color,
                         isSelected: selectedRootID == list.id,
+                        count: list.items.count,
                         list: list
                     ) { currentListID = list.id }
                 }
@@ -211,6 +213,7 @@ struct TodoListView: View {
                             icon: list.iconName ?? "checklist",
                             color: list.color,
                             isSelected: currentListID == list.id,
+                            count: list.items.count,
                             list: list
                         ) { currentListID = list.id }
                     }
@@ -223,14 +226,24 @@ struct TodoListView: View {
 
     /// A single navigation/filter chip. When `list` is non-nil it is also a
     /// drop target, letting you drag a task onto the chip to move it there.
+    /// `count` (when > 0) renders a small task-count badge so you can see at a
+    /// glance which folders still have tasks; empty ones show no badge.
     private func chip(title: String, icon: String, color: Color = Color.accentColor,
-                      isSelected: Bool, list: TodoList?,
+                      isSelected: Bool, count: Int? = nil, list: TodoList?,
                       action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
                     .foregroundStyle(isSelected ? Color.white : color)
                 Text(title)
+                if let count, count > 0 {
+                    Text("\(count)")
+                        .font(.caption2.weight(.bold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(isSelected ? Color.white.opacity(0.28) : color.opacity(0.16)))
+                        .foregroundStyle(isSelected ? Color.white : color)
+                }
             }
             .font(.footnote.weight(.semibold))
             .padding(.horizontal, 12)
