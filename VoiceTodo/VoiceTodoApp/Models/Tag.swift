@@ -11,7 +11,9 @@ final class Tag {
     var colorHex: String?
     var createdAt: Date
 
-    @Relationship(inverse: \TodoItem.tags)
+    // The relationship is declared as "many" here; the inverse lives on
+    // TodoItem.tags. Declaring inverse on BOTH sides creates a circular
+    // reference for the Relationship macro, so keep it on one side only.
     var items: [TodoItem] = []
 
     init(name: String, colorHex: String? = nil, createdAt: Date = Date()) {

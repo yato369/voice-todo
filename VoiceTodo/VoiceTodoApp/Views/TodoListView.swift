@@ -26,7 +26,7 @@ struct TodoListView: View {
     }
 
     /// A rendered group = one list at some tree depth, plus its items.
-    private struct Group: Identifiable {
+    private struct ListGroup: Identifiable {
         let id: UUID
         let list: TodoList?       // nil for the unassigned fallback bucket
         let title: String
@@ -72,9 +72,9 @@ struct TodoListView: View {
         return out
     }
 
-    private var groups: [Group] {
+    private var groups: [ListGroup] {
         var out = flattenedLists.map { pair in
-            Group(
+            ListGroup(
                 id: pair.list.id,
                 list: pair.list,
                 title: pair.list.name,
@@ -87,8 +87,8 @@ struct TodoListView: View {
         // Safety net: items without a list (pre-backfill).
         let unassigned = items.filter { $0.list == nil }.sorted(by: sortInList)
         if !unassigned.isEmpty {
-            out.append(Group(id: UUID(), list: nil, title: "未分类", color: .gray,
-                             icon: "circle", depth: 0, items: unassigned))
+            out.append(ListGroup(id: UUID(), list: nil, title: "未分类", color: .gray,
+                                 icon: "circle", depth: 0, items: unassigned))
         }
         return out
     }
@@ -243,7 +243,7 @@ struct TodoListView: View {
         }
     }
 
-    private func groupHeader(_ group: Group) -> some View {
+    private func groupHeader(_ group: ListGroup) -> some View {
         HStack(spacing: 6) {
             if group.depth > 0 {
                 Rectangle()
@@ -326,7 +326,7 @@ struct TodoListView: View {
         try? storage.delete(item)
     }
 
-    private func delete(at offsets: IndexSet, in group: Group) {
+    private func delete(at offsets: IndexSet, in group: ListGroup) {
         for index in offsets {
             deleteOne(group.items[index])
         }
@@ -338,7 +338,7 @@ struct TodoListView: View {
         }
     }
 
-    private func reorderItems(in group: Group, from source: IndexSet, to destination: Int) {
+    private func reorderItems(in group: ListGroup, from source: IndexSet, to destination: Int) {
         // The unassigned fallback bucket has no stored list to persist order to.
         guard group.list != nil, group.list != nil, lists.contains(where: { $0.id == group.id }) else { return }
         var arr = group.items

@@ -38,88 +38,117 @@ struct TodoDetailView: View {
             }
 
             if let fileName = item.audioFileName {
-                Section("录音") {
-                    Button {
-                        togglePlayback(fileName)
-                    } label: {
-                        Label(
-                            isPlaying ? "停止播放" : "播放录音",
-                            systemImage: isPlaying ? "stop.fill" : "play.fill"
-                        )
-                    }
-                }
+                audioSection(fileName)
             }
 
-            Section("列表") {
-                if flattenedLists.isEmpty {
-                    Text("未创建列表")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Picker("归属列表", selection: Binding(
-                        get: { item.list?.id ?? flattenedLists.first?.list.id },
-                        set: { id in
-                            item.list = lists.first { $0.id == id }
-                            try? storage.save()
-                        }
-                    )) {
-                        ForEach(flattenedLists, id: \.list.id) { entry in
-                            Text(String(repeating: "　", count: entry.depth) + "・" + entry.list.name)
-                                .tag(Optional(entry.list.id))
-                        }
-                    }
-                }
-            }
-
-            Section("标签") {
-                ForEach(tags) { tag in
-                    let isOn = item.tags.contains { $0.id == tag.id }
-                    Button {
-                        toggleTag(tag)
-                    } label: {
-                        HStack {
-                            Label(tag.name, systemImage: tag.color == .accentColor ? "tag" : "tag.fill")
-                                .foregroundStyle(tag.color == .accentColor ? Color.primary : tag.color)
-                            Spacer()
-                            if isOn {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(.accentColor)
-                            }
-                        }
-                    }
-                }
-                HStack {
-                    TextField("新标签", text: $newTagName)
-                    Button("添加") { addTag() }
-                        .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-
-            Section("提醒") {
-                if let reminder = item.reminderDate {
-                    Label(reminder.formatted(), systemImage: "bell.fill")
-                        .foregroundStyle(.orange)
-                } else {
-                    Text("未设置提醒")
-                        .foregroundStyle(.secondary)
-                }
-                NavigationLink {
-                    ReminderEditView(item: item)
-                } label: {
-                    Text(item.reminderDate == nil ? "添加提醒" : "修改提醒")
-                }
-            }
-
-            Section {
-                Button("删除待办", role: .destructive) {
-                    NotificationService.shared.cancelReminder(id: item.id.uuidString)
-                    try? storage.delete(item)
-                }
-            }
+            listSection
+            tagSection
+            reminderSection
+            deleteSection
         }
         .navigationTitle("详情")
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear {
             audioPlayer?.stop()
+        }
+    }
+
+    // MARK: - Subviews
+
+    @ViewBuilder
+    private func audioSection(_ fileName: String) -> some View {
+        Section("录音") {
+            Button {
+                togglePlayback(fileName)
+            } label: {
+                Label(
+                    isPlaying ? "停止播放" : "播放录音",
+                    systemImage: isPlaying ? "stop.fill" : "play.fill"
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var listSection: some View {
+        Section("列表") {
+            if flattenedLists.isEmpty {
+                Text("未创建列表")
+                    .foregroundStyle(.secondary)
+            } else {
+                Picker("归属列表", selection: Binding(
+                    get: { item.list?.id ?? flattenedLists.first?.list.id },
+                    set: { id in
+                        item.list = lists.first { $0.id == id }
+                        try? storage.save()
+                    }
+                )) {
+                    ForEach(flattenedLists, id: \.list.id) { entry in
+                        Text(String(repeating: "　", count: entry.depth) + "・" + entry.list.name)
+                            .tag(Optional(entry.list.id))
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var tagSection: some View {
+        Section("标签") {
+            ForEach(tags) { tag in
+                tagRow(tag)
+            }
+            HStack {
+                TextField("新标签", text: $newTagName)
+                Button("添加") { addTag() }
+                    .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+    }
+
+    private func tagRow(_ tag: Tag) -> some View {
+        let isOn = item.tags.contains { $0.id == tag.id }
+        let hasColor = tag.color != .accentColor
+        return Button {
+            toggleTag(tag)
+        } label: {
+            HStack {
+                Label(tag.name, systemImage: hasColor ? "tag.fill" : "tag")
+                    .foregroundStyle(hasColor ? tag.color : Color.primary)
+                Spacer()
+                if isOn {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(.accentColor)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var reminderSection: some View {
+        Section("提醒") {
+            if let reminder = item.reminderDate {
+                Label(reminder.formatted(), systemImage: "bell.fill")
+                    .foregroundStyle(.orange)
+            } else {
+                Text("未设置提醒")
+                    .foregroundStyle(.secondary)
+            }
+            NavigationLink {
+                ReminderEditView(item: item)
+            } label: {
+                Text(item.reminderDate == nil ? "添加提醒" : "修改提醒")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var deleteSection: some View {
+        Section {
+            Button("删除待办", role: .destructive) {
+                NotificationService.shared.cancelReminder(id: item.id.uuidString)
+                try? storage.delete(item)
+            }
         }
     }
 
