@@ -1,5 +1,66 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
+
+// MARK: - Drag & drop delegates (onDrag + onDrop, reliable inside List)
+
+/// Drop target = a to-do row. Dropping here reorders within the list or
+/// moves the dragged item into the target row's list at that position.
+private struct TodoRowDropDelegate: DropDelegate {
+    let target: TodoItem
+    let perform: (_ draggedID: UUID, _ target: TodoItem) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [UTType.plainText])
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard let provider = info.itemProviders(for: [UTType.plainText]).first else {
+            return false
+        }
+        provider.loadObject(ofClass: NSString.self) { object, _ in
+            guard let string = object as? String,
+                  let draggedID = UUID(uuidString: string) else { return }
+            DispatchQueue.main.async {
+                perform(draggedID, target)
+            }
+        }
+        return true
+    }
+}
+
+/// Drop target = a section header. Dropping here appends the dragged item
+/// to that list (end position).
+private struct ListHeaderDropDelegate: DropDelegate {
+    let list: TodoList?
+    let perform: (_ draggedID: UUID, _ list: TodoList?) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [UTType.plainText])
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard let provider = info.itemProviders(for: [UTType.plainText]).first else {
+            return false
+        }
+        provider.loadObject(ofClass: NSString.self) { object, _ in
+            guard let string = object as? String,
+                  let draggedID = UUID(uuidString: string) else { return }
+            DispatchQueue.main.async {
+                perform(draggedID, list)
+            }
+        }
+        return true
+    }
+}
 
 struct TodoListView: View {
     @Environment(\.modelContext) private var modelContext
@@ -261,9 +322,10 @@ struct TodoListView: View {
                                 toggleCollapse(group.id)
                             }
                         }
-                        .dropDestination(for: String.self) { payload, _ in
-                            moveDropped(payload, to: group.id)
-                        }
+                        .onDrop(of: [UTType.plainText],
+                                delegate: ListHeaderDropDelegate(list: group.list) { draggedID, list in
+                            moveDraggedToList(draggedID, list)
+                        })
                 }
             }
         }
@@ -299,6 +361,10 @@ struct TodoListView: View {
             }
         }
         .padding(.leading, depth > 0 ? CGFloat(depth) * 16 : 0)
+        .onDrop(of: [UTType.plainText],
+                delegate: TodoRowDropDelegate(target: item) { draggedID, target in
+            moveDragged(draggedID, onto: target)
+        })
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
                 deleteOne(item)
@@ -307,9 +373,6 @@ struct TodoListView: View {
             }
             moveSwipeButton(for: item)
         }
-        .dropDestination(for: String.self) { payload, _ in
-            dropPayload(payload, onto: item)
-        }
     }
 
     private func dragHandle(_ item: TodoItem) -> some View {
@@ -317,7 +380,7 @@ struct TodoListView: View {
             .font(.body)
             .foregroundStyle(.secondary)
             .contentShape(Rectangle())
-            .draggable(item.id.uuidString)
+            .onDrag { NSItemProvider(object: item.id.uuidString as NSString) }
     }
 
     private func groupHeader(_ group: ListGroup) -> some View {
@@ -379,9 +442,10 @@ struct TodoListView: View {
                         toggle(item)
                     }
                 }
-                .dropDestination(for: String.self) { payload, _ in
-                    dropPayload(payload, onto: item)
-                }
+                .onDrop(of: [UTType.plainText],
+                        delegate: TodoRowDropDelegate(target: item) { draggedID, target in
+                    moveDragged(draggedID, onto: target)
+                })
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) { deleteOne(item) } label: {
                         Label("删除", systemImage: "trash")
@@ -450,12 +514,9 @@ struct TodoListView: View {
 
     /// Drag & drop onto a row: reorder within the same list, or move the
     /// dragged item into the target row's list at that position.
-    @discardableResult
-    private func dropPayload(_ payload: [String], onto target: TodoItem) -> Bool {
-        guard let idString = payload.first,
-              let uuid = UUID(uuidString: idString),
-              let dragged = items.first(where: { $0.id == uuid }),
-              dragged.id != target.id else { return false }
+    private func moveDragged(_ draggedID: UUID, onto target: TodoItem) {
+        guard let dragged = items.first(where: { $0.id == draggedID }),
+              dragged.id != target.id else { return }
         let listID = target.list?.id
         var arr = itemsSorted(forList: listID)
         arr.removeAll { $0.id == dragged.id }
@@ -466,7 +527,19 @@ struct TodoListView: View {
             item.position = position
         }
         try? storage.save()
-        return true
+    }
+
+    /// Drag & drop onto a section header: move the dragged item into that
+    /// list, appended at the end.
+    private func moveDraggedToList(_ draggedID: UUID, _ list: TodoList?) {
+        guard let dragged = items.first(where: { $0.id == draggedID }) else { return }
+        if let list {
+            guard lists.contains(where: { $0.id == list.id }) else { return }
+            assign(dragged, to: list)
+        } else {
+            dragged.list = nil
+            try? storage.save()
+        }
     }
 
     // MARK: - Moving between lists
@@ -491,15 +564,6 @@ struct TodoListView: View {
         item.list = list
         item.position = itemsSorted(forList: list.id).count   // append at the end
         try? storage.save()
-    }
-
-    private func moveDropped(_ payload: [String], to id: UUID) -> Bool {
-        guard let idString = payload.first,
-              let uuid = UUID(uuidString: idString),
-              let dragged = items.first(where: { $0.id == uuid }),
-              let target = lists.first(where: { $0.id == id }) else { return false }
-        assign(dragged, to: target)
-        return true
     }
 
     // MARK: - Default list (idempotent seeding)
