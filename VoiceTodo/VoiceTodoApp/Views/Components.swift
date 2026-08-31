@@ -66,3 +66,24 @@ struct TodoRow: View {
         }
     }
 }
+
+/// A dashed placeholder row shown under an empty list so the list remains a
+/// valid drag-and-drop target. Not itself draggable.
+struct EmptyListDropSlot: View {
+    var body: some View {
+        HStack {
+            Spacer()
+            Label("＋ 拖到这里添加", systemImage: "plus")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.vertical, 10)
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(style: StrokeStyle(lineWidth: 1, dash: [4]))
+                .foregroundStyle(.quaternary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}

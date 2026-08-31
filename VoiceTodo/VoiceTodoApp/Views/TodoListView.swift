@@ -52,19 +52,23 @@ struct TodoListView: View {
     private static let unassignedHeaderID =
         UUID(uuidString: "00000000-0000-0000-0000-00000000C0DE")!
 
-    /// A row in the flattened grouped list: either a non-movable list header
-    /// or a movable task. Rendering them all in ONE collection lets the native
-    /// `onMove` reorder tasks inside a list AND across lists (dropping an item
-    /// under a different header reassigns it to that list).
+    /// A row in the flattened grouped list: a non-movable list header, a
+    /// movable task, or an empty-list drop slot. Rendering them all in ONE
+    /// collection lets the native `onMove` reorder tasks inside a list AND
+    /// across lists (dropping an item under a different header reassigns it
+    /// to that list). The empty slot is an extra, non-movable row shown under
+    /// an empty (uncollapsed) list so it remains a valid drop target.
     private enum GRow: Identifiable {
         case header(id: UUID, listID: UUID?, name: String, color: Color,
                     icon: String, depth: Int, count: Int)
         case item(TodoItem)
+        case emptySlot(id: UUID)
 
-        var id: UUID {
+        var id: String {
             switch self {
-            case .header(let id, _, _, _, _, _, _): return id
-            case .item(let item): return item.id
+            case .header(let id, _, _, _, _, _, _): return "h-\(id.uuidString)"
+            case .item(let item): return "i-\(item.id.uuidString)"
+            case .emptySlot(let id): return "e-\(id.uuidString)"
             }
         }
     }
@@ -105,28 +109,55 @@ struct TodoListView: View {
         return out
     }
 
-    /// Flattened, in order: each list's header (non-movable) followed by its
-    /// tasks, nested lists interleaved by tree depth. "未分类" acts as a
-    /// fallback header for any item whose `list` is nil.
+    /// Flattened, in order: each list's header (non-movable), then either:
+    /// - if collapsed: stop (no children, the whole subtree is hidden)
+    /// - if expanded: list's tasks (or empty slot if 0 tasks), then recursively
+    ///   include this list's children (subfolders), recursively expanded.
+    ///
+    /// Folding a list hides its entire subtree (all descendant lists + their
+    /// items), matching the file-explorer tree behavior.
+    ///
+    /// An empty (expanded) list gets an extra `emptySlot` row so it remains a
+    /// valid drop target when dragging into it (since the list expects at least
+    /// one row to receive the drop).
     private var groupedRows: [GRow] {
-        var rows: [GRow] = []
-        for pair in flattenedLists {
-            let sectionItems = itemsSorted(forList: pair.list.id)
-            rows.append(.header(id: pair.list.id, listID: pair.list.id,
-                                name: pair.list.name, color: pair.list.color,
-                                icon: pair.list.iconName ?? "checklist",
-                                depth: pair.depth, count: sectionItems.count))
-            if !collapsedLists.contains(pair.list.id) {
-                rows.append(contentsOf: sectionItems.map { .item($0) })
+        func addSubtree(roots: [(TodoList, Int)], to rows: inout [GRow]) {
+            for (list, depth) in roots {
+                let sectionItems = itemsSorted(forList: list.id)
+                rows.append(.header(id: list.id, listID: list.id,
+                                    name: list.name, color: list.color,
+                                    icon: list.iconName ?? "checklist",
+                                    depth: depth, count: sectionItems.count))
+                if collapsedLists.contains(list.id) {
+                    continue // stop: entire subtree is hidden
+                }
+                if sectionItems.isEmpty {
+                    rows.append(.emptySlot(id: list.id))
+                } else {
+                    rows.append(contentsOf: sectionItems.map { .item($0) })
+                }
+                let childRoots = list.children.sorted { $0.position < $1.position }
+                    .map { ($0, depth + 1) }
+                addSubtree(roots: childRoots, to: &rows)
             }
         }
+
+        var rows: [GRow] = []
+        let rootChildren = rootLists.map { ($0, 0) }
+        addSubtree(roots: rootChildren, to: &rows)
+
+        // Unassigned items (list == nil)
         let unassigned = items.filter { $0.list == nil }.sorted(by: sortInList)
         if !unassigned.isEmpty {
             rows.append(.header(id: Self.unassignedHeaderID, listID: nil,
                                 name: "未分类", color: .gray, icon: "circle",
                                 depth: 0, count: unassigned.count))
             if !collapsedLists.contains(Self.unassignedHeaderID) {
-                rows.append(contentsOf: unassigned.map { .item($0) })
+                if unassigned.isEmpty {
+                    rows.append(.emptySlot(id: Self.unassignedHeaderID))
+                } else {
+                    rows.append(contentsOf: unassigned.map { .item($0) })
+                }
             }
         }
         return rows
@@ -293,6 +324,10 @@ struct TodoListView: View {
                                 Label("删除", systemImage: "trash")
                             }
                         }
+                case .emptySlot:
+                    EmptyListDropSlot()
+                        .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 2, trailing: 16))
+                        .moveDisabled(true)
                 }
             }
             .onMove(perform: moveRows)
@@ -335,12 +370,23 @@ struct TodoListView: View {
         }
     }
 
+    /// Toggle a list's open/closed state. The state cascades to the list's
+    /// DIRECT children (each level only manages the next level), so expanding
+    /// a folder also reveals its subfolders and collapsing folds the whole
+    /// subtree — matching the file-explorer disclosure model. Deep descendants
+    /// stay managed by their own arrows.
     private func toggleCollapse(_ id: UUID) {
+        var affected: Set<UUID> = [id]
+        if let list = lists.first(where: { $0.id == id }) {
+            for child in list.children {
+                affected.insert(child.id)
+            }
+        }
         withAnimation(.easeInOut(duration: 0.2)) {
             if collapsedLists.contains(id) {
-                collapsedLists.remove(id)
+                collapsedLists.subtract(affected)
             } else {
-                collapsedLists.insert(id)
+                collapsedLists.formUnion(affected)
             }
         }
     }
@@ -383,6 +429,14 @@ struct TodoListView: View {
             }
         }
         try? storage.save()
+
+        // Once the drop animation settles, rebuild from live data so an empty
+        // slot that was consumed by this drop (or added to a list we emptied)
+        // is replaced by the now-correct placeholder. Deferred so it never runs
+        // mid-transaction.
+        DispatchQueue.main.async {
+            self.refreshDisplayRows()
+        }
     }
 
     // MARK: - Display row sync (rebuild from live data, no drag conflict)

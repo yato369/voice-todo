@@ -88,8 +88,9 @@ struct ManageListsView: View {
                     }
                 }
                 .onDelete(perform: delete)
+                .onMove(perform: moveRows)
             } header: {
-                Text("左滑删除；长按可编辑或新建子列表")
+                Text("编辑模式拖动右侧手柄排序；左滑删除；长按可编辑或新建子列表")
             }
 
             Section {
@@ -101,6 +102,9 @@ struct ManageListsView: View {
             }
 
             Section {
+                Text("拖动右侧手柄排序——拖到某列表的下一个位置=成为其子文件夹；拖到同级列表之间=同级排序；拖到最前面=升为顶层。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                 Text("列表可任意嵌套（二级、三级…分层归类）；新待办默认进入「默认」（收件箱）列表；删除列表时，其子列表与该列表内的待办会移回默认列表。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -108,6 +112,9 @@ struct ManageListsView: View {
         }
         .navigationTitle("管理列表")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { EditButton() }
+        }
         .sheet(item: $editingSheet) { sheet in
             EditListSheet(list: sheet.list, parentPreset: sheet.parentPreset)
         }
@@ -154,6 +161,58 @@ struct ManageListsView: View {
             other.isDefault = (other.id == list.id)
         }
         try? storage.save()
+    }
+
+    /// Reorder / re-nest lists from the flat `onMove` gesture.
+    /// Rule (based on where the row is released):
+    /// - dropped at the very top         -> becomes a top-level list, placed first
+    /// - dropped right after a folder    -> becomes that folder's child (nested)
+    ///   (detected when the row below the drop line is that folder's own child)
+    /// - dropped between two lists       -> same-level reorder (stays a sibling)
+    private func moveRows(from source: IndexSet, to destination: Int) {
+        guard source.count == 1, let fromIdx = source.first else { return }
+        let rows = flattened
+        guard rows.indices.contains(fromIdx) else { return }
+        let moved = rows[fromIdx].list
+
+        var arr = rows
+        arr.move(fromOffsets: source, toOffset: destination)
+        guard let newIdx = arr.firstIndex(where: { $0.list.id == moved.id }) else { return }
+
+        // Determine the new parent from the drop position.
+        var newParent: TodoList?
+        if arr.count == 1 || newIdx == 0 {
+            newParent = nil                          // top level
+        } else {
+            let prevList = arr[newIdx - 1].list
+            if newIdx + 1 < arr.count, arr[newIdx + 1].list.parent?.id == prevList.id {
+                newParent = prevList                 // dropped right after prev's header -> its child
+            } else {
+                newParent = prevList.parent          // sibling of prevList
+            }
+        }
+
+        // Guard against cycles (a flat drop can't produce one, but stay safe).
+        if let newParent {
+            var cursor = newParent.parent
+            var guardDepth = 0
+            while let parent = cursor, guardDepth < 256 {
+                if parent.id == moved.id { return }
+                cursor = parent.parent
+                guardDepth += 1
+            }
+        }
+
+        // Reassign the parent, then reindex every sibling group following the
+        // new pre-order so `position` stays consistent within each parent.
+        moved.parent = newParent
+        var counters: [UUID?: Int] = [:]
+        for entry in arr {
+            let key = entry.list.parent?.id
+            entry.list.position = counters[key] ?? 0
+            counters[key] = (counters[key] ?? 0) + 1
+        }
+        try? modelContext.save()
     }
 }
 
