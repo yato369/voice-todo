@@ -3,7 +3,6 @@ import SwiftData
 
 struct TodoListView: View {
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.editMode) private var editMode
     @Query(sort: \TodoItem.createdAt, order: .reverse) private var items: [TodoItem]
     @Query(sort: \TodoList.position) private var lists: [TodoList]
     @Query(sort: \Tag.createdAt) private var tags: [Tag]
@@ -14,9 +13,13 @@ struct TodoListView: View {
     @State private var filterListID: UUID?
     @State private var filterTagID: UUID?
 
-    private var storage: StorageServiceProtocol { StorageService(context: modelContext) }
+    /// Self-managed edit mode (independent of the system EditButton env):
+    /// when active, every row shows a red minus (delete) + a drag handle (≡).
+    @State private var isEditing = false
+    /// Lists whose sections are collapsed (items hidden, header kept).
+    @State private var collapsedLists: Set<UUID> = []
 
-    private var isEditing: Bool { editMode?.wrappedValue == .active }
+    private var storage: StorageServiceProtocol { StorageService(context: modelContext) }
 
     /// Edit an existing list or create a sub-list under a parent.
     enum ListEditSheet: Identifiable {
@@ -148,7 +151,11 @@ struct TodoListView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    EditButton()
+                    Button(isEditing ? "完成" : "编辑") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isEditing.toggle()
+                        }
+                    }
                 }
                 if layout == .flat {
                     ToolbarItem(placement: .topBarTrailing) { listFilterMenu }
@@ -240,12 +247,20 @@ struct TodoListView: View {
         List {
             ForEach(groups) { group in
                 Section {
-                    ForEach(group.items) { item in
-                        row(item, depth: group.depth)
+                    if !collapsedLists.contains(group.id) {
+                        ForEach(group.items) { item in
+                            row(item, depth: group.depth)
+                        }
+                        .onDelete { offsets in delete(at: offsets, in: group) }
                     }
-                    .onDelete { offsets in delete(at: offsets, in: group) }
                 } header: {
                     groupHeader(group)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                toggleCollapse(group.id)
+                            }
+                        }
                         .dropDestination(for: String.self) { payload, _ in
                             moveDropped(payload, to: group.id)
                         }
@@ -254,12 +269,29 @@ struct TodoListView: View {
         }
     }
 
-    /// A single to-do row. In edit mode a drag handle (≡) appears: press it
-    /// and drag onto any row to reorder or change list; drop on a section
-    /// header to append to that list. Swipe = delete + move.
+    private func toggleCollapse(_ id: UUID) {
+        if collapsedLists.contains(id) {
+            collapsedLists.remove(id)
+        } else {
+            collapsedLists.insert(id)
+        }
+    }
+
+    /// A single to-do row. In edit mode a drag handle (≡) and a red minus
+    /// (delete) appear at the leading edge; press the handle and drag onto
+    /// any row to reorder or change list, or onto a section header to append
+    /// to that list. Non-edit mode: swipe = delete + move.
     private func row(_ item: TodoItem, depth: Int) -> some View {
         HStack(spacing: 10) {
             if isEditing {
+                Button(role: .destructive) {
+                    deleteOne(item)
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(Color.red)
+                }
+                .buttonStyle(.borderless)
                 dragHandle(item)
             }
             TodoRow(item: item) {
@@ -290,6 +322,10 @@ struct TodoListView: View {
 
     private func groupHeader(_ group: ListGroup) -> some View {
         HStack(spacing: 6) {
+            Image(systemName: collapsedLists.contains(group.id) ? "chevron.right" : "chevron.down")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.tertiary)
+                .frame(width: 14)
             if group.depth > 0 {
                 Rectangle()
                     .fill(Color.clear)
@@ -306,7 +342,6 @@ struct TodoListView: View {
         }
         .font(.subheadline.weight(.semibold))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
         .contextMenu {
             if let list = group.list {
                 Button {
@@ -330,11 +365,22 @@ struct TodoListView: View {
             ForEach(filteredItems) { item in
                 HStack(spacing: 10) {
                     if isEditing {
+                        Button(role: .destructive) {
+                            deleteOne(item)
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .font(.title3)
+                                .foregroundStyle(Color.red)
+                        }
+                        .buttonStyle(.borderless)
                         dragHandle(item)
                     }
                     TodoRow(item: item) {
                         toggle(item)
                     }
+                }
+                .dropDestination(for: String.self) { payload, _ in
+                    dropPayload(payload, onto: item)
                 }
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) { deleteOne(item) } label: {

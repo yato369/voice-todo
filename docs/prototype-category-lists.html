@@ -42,6 +42,8 @@
   .more{color:var(--sub); cursor:pointer; padding:4px;}
   .del{color:var(--red); cursor:pointer; padding:4px; display:none;}
   body.editing .del{display:block;}
+  .chev{color:var(--sub); font-size:12px; font-weight:700; width:14px; flex:0 0 14px; text-align:center;}
+  .minus{color:var(--red); font-size:20px; cursor:pointer; margin-right:2px; flex:0 0 auto; line-height:1;}
   .empty{padding:30px 16px; text-align:center; color:var(--sub); font-size:14px;}
   .fabwrap{position:fixed; right:18px; bottom:24px; display:flex; flex-direction:column; gap:12px; z-index:15;}
   .fab{width:56px; height:56px; border-radius:28px; border:none; color:#fff; font-size:26px;
@@ -117,6 +119,7 @@ const STORE="vt_proto_lists_v2";
 const pal=["#E53935","#FB8C00","#FDD835","#43A047","#039BE5","#5E35B1","#8E24AA","#6D4C41"];
 const icons={"tray.fill":"📥","checklist":"☑️","book":"📚","briefcase":"💼","cart":"🛒","house":"🏠","bolt":"⚡","calendar":"📅","star":"⭐"};
 let mode='grouped', editing=false, filterListID=null, filterTag=null, manageEdit=false, movePending=null;
+let collapsedLists=new Set();
 
 function seed(){
   let s=localStorage.getItem(STORE);
@@ -174,9 +177,12 @@ function render(){
   if(mode==='grouped'){
     const groups=treeLists().map(([l,d])=>({l,d,items:db.items.filter(i=>i.list===l.id)}));
     let built=groups.map(g=>{
-      if(!g.items.length)return '';
-      const head=`<div class="sec-head" data-sech="${g.l.id}" oncontextmenu="openForm(db_lists('${g.l.id}'));return false"><span class="dot" style="background:${g.l.color}"></span>${indentHTML(g.d)}&nbsp;${icons[g.l.icon]||'☑️'}&nbsp;${esc(g.l.name)}<span class="count">${g.items.length}</span></div>`;
-      return `<div class="card" data-secid="${g.l.id}">${head}${g.items.map(i=>itemHTML(i,g.d)).join('')}</div>`;
+      if(!g.items.length && !collapsedLists.has(g.l.id))return '';
+      const chev=collapsedLists.has(g.l.id)?'›':'⌄';
+      const head=`<div class="sec-head" data-sech="${g.l.id}" onclick="toggleCollapse('${g.l.id}')" oncontextmenu="openForm(db_lists('${g.l.id}'));return false">
+        <span class="chev">${chev}</span><span class="dot" style="background:${g.l.color}"></span>${indentHTML(g.d)}&nbsp;${icons[g.l.icon]||'☑️'}&nbsp;${esc(g.l.name)}<span class="count">${g.items.length}</span></div>`;
+      const items=collapsedLists.has(g.l.id)?'':g.items.map(i=>itemHTML(i,g.d)).join('');
+      return `<div class="card" data-secid="${g.l.id}">${head}${items}</div>`;
     }).join('');
     if(!built)html=card(empty('还没有待办<br>点右下角按钮，语音或文字输入创建待办'));
     else html=built;
@@ -205,6 +211,7 @@ function itemHTML(i,d=0){
   const linkChip=i.links&&i.links.length?`<span class="chip">🔗 ${i.links.length}</span>`:'';
   const when=new Date(i.ts).toLocaleString('zh-Hans',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
   const indent=d>0?`style="padding-left:${d*16}px"`:'';
+  const minus=editing?`<span class="minus" onclick="event.stopPropagation();deleteItem('${i.id}')" title="删除">⊖</span>`:'';
   const grip=editing?`<span class="grip" title="按住拖动排序/换列表">≡</span>`:'';
   const dragAttr=editing?'draggable="true"':'';
   return `
@@ -214,6 +221,7 @@ function itemHTML(i,d=0){
        ondragstart="dragStart(event,'${i.id}')"
        ondragend="dragEnd(event)"
        ${indent}>
+    ${minus}
     ${grip}
     <div class="circle ${i.done?'done':''}" onclick="toggleItem('${i.id}')">${i.done?'✓':''}</div>
     <span class="col">
@@ -226,6 +234,11 @@ function itemHTML(i,d=0){
 }
 
 function db_lists(id){ return db.lists.find(x=>x.id===id); }
+
+function toggleCollapse(id){
+  if(collapsedLists.has(id)) collapsedLists.delete(id); else collapsedLists.add(id);
+  render();
+}
 
 // 拖动到小节标题区域切换列表
 function dragStart(e,id){e.dataTransfer.setData('text/plain',id);}
