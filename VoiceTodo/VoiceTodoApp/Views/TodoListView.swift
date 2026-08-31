@@ -354,7 +354,10 @@ struct TodoListView: View {
         rows.move(fromOffsets: source, toOffset: destination)
         displayRows = rows
 
-        guard let newIdx = rows.firstIndex(where: { $0.id == moved.id }) else { return }
+        guard let newIdx = rows.firstIndex(where: { row -> Bool in
+            if case .item(let it) = row { return it.id == moved.id }
+            return false
+        }) else { return }
 
         // Find the nearest list header above the task's new position. Items
         // dropped into an empty list land right under that list's header (or
