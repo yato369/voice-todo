@@ -201,6 +201,9 @@ struct TodoListView: View {
                         Label("管理列表", systemImage: "folder")
                     }
                 }
+                if layout == .grouped {
+                    ToolbarItem(placement: .topBarTrailing) { EditButton() }
+                }
                 if layout == .flat {
                     ToolbarItem(placement: .topBarTrailing) { listFilterMenu }
                     ToolbarItem(placement: .topBarTrailing) { tagFilterMenu }
@@ -295,25 +298,24 @@ struct TodoListView: View {
         String(repeating: "　", count: depth)
     }
 
-    // MARK: - Grouped list (explicit drag & drop)
+    // MARK: - Grouped list (native List + onMove)
 
-    /// Grouped tasks rendered as ONE flattened `List`. Dragging is done with
-    /// SwiftUI's explicit `.draggable` / `.dropDestination` pair (NOT `onMove`):
+    /// Grouped tasks rendered as ONE flattened `List`. Task rows are movable
+    /// via native `onMove`, which shows the ≡ drag handle on the left of each
+    /// row when you tap the top-right "编辑" button (then "完成" to exit).
     ///
-    /// - Each task row is **draggable** (long-press to lift) and is also a
-    ///   drop target (dropping BEFORE that row inserts the dragged task there).
-    /// - Each task header and each empty-list placeholder is a drop target that
-    ///   **appends** the dragged task to that list.
-    ///
-    /// Because the empty placeholder is an explicit `.dropDestination` (instead
-    /// of relying on `onMove`'s insertion-boundary rules between movable rows),
-    /// you can drop a task into an EMPTY list too. The placeholder is purely a
-    /// receiver and never itself draggable.
+    /// - Dropping a task onto another task row inserts it right there.
+    /// - Dropping a task under a list header moves it into that list
+    ///   (freely reordered by exactly where you drop it).
+    /// - Each list header is `.moveDisabled` so it can't be dragged itself.
+    /// - An empty list renders a `GRow.emptySlot` placeholder row that stays
+    ///   draggable-into (NOT `.moveDisabled`) so the list remains a valid
+    ///   drop target even when it has zero tasks.
     private var groupedList: some View {
         List {
             ForEach(displayRows) { row in
                 switch row {
-                case .header(let id, let listID, let name, let color, let icon, let depth, let count):
+                case .header(let id, _, let name, let color, let icon, let depth, let count):
                     GroupedHeaderView(
                         name: name, color: color, icon: icon,
                         depth: depth, count: count,
@@ -321,82 +323,72 @@ struct TodoListView: View {
                         onToggle: { toggleCollapse(id) }
                     )
                     .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
-                    .dropDestination(for: String.self) { payloads, _ in
-                        append(dragged: payloads, to: listID)
-                    }
+                    .moveDisabled(true)
                 case .item(let item):
                     TodoRow(item: item) { toggle(item) }
-                        .draggable(Self.dragMarker + item.id.uuidString)
-                        .dropDestination(for: String.self) { payloads, _ in
-                            insertBefore(dragged: payloads, target: item)
-                        }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) { deleteOne(item) } label: {
                                 Label("删除", systemImage: "trash")
                             }
                         }
-                case .emptySlot(let listID):
-                    // Explicit drop target so an EMPTY list can still receive a
-                    // dropped task. Never draggable itself.
+                case .emptySlot:
                     EmptyListDropSlot()
                         .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 2, trailing: 16))
-                        .dropDestination(for: String.self) { payloads, _ in
-                            append(dragged: payloads, to: listID)
-                        }
                 }
             }
+            .onMove(perform: moveRows)
         }
         .listStyle(.insetGrouped)
     }
 
-    // MARK: - Drag & drop helpers
+    /// Reorder tasks in the flattened list. Only the in-memory `displayRows`
+    /// array is mutated here (pure array move) so the drag animation never
+    /// fights live `@Query` / model updates — the root cause of the earlier
+    /// "index path does not exist" / "invalid number of items in section"
+    /// crashes. The move is then written back to SwiftData exactly once.
+    private func moveRows(from source: IndexSet, to destination: Int) {
+        guard source.count == 1, let fromIdx = source.first else { return }
+        guard case .item(let moved) = displayRows[fromIdx] else { return }
 
-    /// Prefix that distinguishes our drag payload from arbitrary text.
-    private static let dragMarker = "vt-item:"
+        var rows = displayRows
+        rows.move(fromOffsets: source, toOffset: destination)
+        displayRows = rows
 
-    /// Pull the dragged item out of the payloads delivered to a drop target.
-    private func draggedItem(_ payloads: [String]) -> TodoItem? {
-        guard let first = payloads.first,
-              first.hasPrefix(Self.dragMarker),
-              let id = UUID(uuidString: String(first.dropFirst(Self.dragMarker.count)))
-        else { return nil }
-        return items.first { $0.id == id }
-    }
+        guard let newIdx = rows.firstIndex(where: { $0.id == moved.id }) else { return }
 
-    /// Drop a task onto a list header / empty placeholder → append to `listID`.
-    private func append(dragged payloads: [String], to listID: UUID?) -> Bool {
-        guard let item = draggedItem(payloads) else { return false }
-        guard let list = lists.first(where: { $0.id == listID }) else { return false }
-        guard item.list?.id != listID else { return false }   // already here → no-op
-
-        item.list = list
-        item.position = itemsSorted(forList: listID).count    // append at the end
-        try? storage.save()
-        refreshDisplayRows()
-        return true
-    }
-
-    /// Drop a task onto a task row → insert it BEFORE that row's item.
-    private func insertBefore(dragged payloads: [String], target: TodoItem) -> Bool {
-        guard let item = draggedItem(payloads) else { return false }
-        guard item.id != target.id else { return true }       // dropped on itself → ignore
-
-        let targetListID = target.list?.id
-        guard let list = lists.first(where: { $0.id == targetListID }) else { return false }
-        item.list = list
-
-        // Rebuild this list's order with the dragged item inserted before target.
-        var ordered = itemsSorted(forList: targetListID).filter { $0.id != item.id }
-        if let idx = ordered.firstIndex(where: { $0.id == target.id }) {
-            ordered.insert(item, at: idx)
-        } else {
-            ordered.append(item)
+        // Find the nearest list header above the task's new position. Items
+        // dropped into an empty list land right under that list's header (or
+        // on its placeholder), which maps to the list here too.
+        var targetListID: UUID?
+        for i in stride(from: newIdx - 1, through: 0, by: -1) {
+            if case .header(_, let listID, _, _, _, _, _) = rows[i] {
+                targetListID = listID
+                break
+            }
         }
-        for (idx, it) in ordered.enumerated() { it.position = idx }
+        // Only accept a real list as destination (ignore the "未分类" bucket).
+        guard let newListID = targetListID,
+              let list = lists.first(where: { $0.id == newListID }) else { return }
+        moved.list = list
 
+        // Reassign in-list positions from the new flattened order.
+        var counter: [UUID: Int] = [:]
+        for row in rows {
+            if case .item(let item) = row, let key = item.list?.id {
+                let pos = counter[key] ?? 0
+                item.position = pos
+                counter[key] = pos + 1
+            }
+        }
         try? storage.save()
-        refreshDisplayRows()
-        return true
+
+        // Once the drop settles, rebuild from live data so an empty slot that
+        // was consumed by this drop (or newly added to a list we emptied) is
+        // replaced by the correct placeholder. Deferred so it never runs
+        // mid-transaction.
+        DispatchQueue.main.async {
+            self.refreshDisplayRows()
+        }
     }
 
     /// A tappable list header with a collapse chevron and item count.
