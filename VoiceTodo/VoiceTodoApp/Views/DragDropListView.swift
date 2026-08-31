@@ -32,6 +32,8 @@ struct DragDropListView: UIViewRepresentable {
     let onCollapse: (UUID) -> Void
     /// Move `item` into list `toListID` (nil = unassigned) at `toIndex`.
     let onMove: (_ item: TodoItem, _ toListID: UUID?, _ toIndex: Int) -> Void
+    /// Open the detail screen for a row.
+    let onOpen: (TodoItem) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -73,6 +75,7 @@ struct DragDropListView: UIViewRepresentable {
         cv.reorderingCadence = .immediate
         cv.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 100, right: 0)  // room for FABs
         cv.register(ItemCell.self, forCellWithReuseIdentifier: ItemCell.reuseID)
+        cv.register(DropCell.self, forCellWithReuseIdentifier: DropCell.reuseID)
         cv.register(
             HeaderView.self,
             forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
@@ -87,15 +90,42 @@ struct DragDropListView: UIViewRepresentable {
         context.coordinator.apply(using: uiView)
     }
 
-    // MARK: - Hosting cell
+    // MARK: - Hosting cell (display-only content + native controls)
 
     final class ItemCell: UICollectionViewCell {
         static let reuseID = "ItemCell"
         private var host: UIHostingController<AnyView>?
+        private var onOpen: (() -> Void)?
 
-        func configure(with item: TodoItem, onToggle: @escaping () -> Void) {
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            let btn = UIButton(type: .system)
+            btn.titleLabel?.font = .systemFont(ofSize: 22, weight: .semibold)
+            btn.setTitle("⋯", for: .normal)
+            btn.alpha = 0.9
+            btn.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview(btn)
+            NSLayoutConstraint.activate([
+                btn.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -6),
+                btn.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+                btn.widthAnchor.constraint(equalToConstant: 44),
+                btn.heightAnchor.constraint(equalToConstant: 44)
+            ])
+            btn.addTarget(self, action: #selector(openTapped), for: .touchUpInside)
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        @objc private func openTapped() {
+            onOpen?()
+        }
+
+        func configure(with item: TodoItem,
+                       onToggle: @escaping () -> Void,
+                       onOpen: @escaping () -> Void) {
             let root = TodoRow(item: item, onToggle: { onToggle() })
                 .id(item.id)
+                .allowsHitTesting(false)        // row content is display-only
             if let host {
                 host.rootView = AnyView(root)
             } else {
@@ -103,6 +133,7 @@ struct DragDropListView: UIViewRepresentable {
                 h.view.translatesAutoresizingMaskIntoConstraints = false
                 h.view.backgroundColor = .clear
                 contentView.addSubview(h.view)
+                contentView.sendSubviewToBack(h.view)
                 NSLayoutConstraint.activate([
                     h.view.topAnchor.constraint(equalTo: contentView.topAnchor),
                     h.view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
@@ -111,9 +142,37 @@ struct DragDropListView: UIViewRepresentable {
                 ])
                 host = h
             }
-            // Keep the row's own SwiftUI controls interactive (toggle + detail
-            // navigation). Drag & drop still works via the cell's long press.
+            host?.view.isUserInteractionEnabled = false
+            self.onOpen = onOpen
         }
+    }
+
+    /// A drop slot shown inside a non-empty-list placeholder so an empty list
+    /// still exposes a valid drag target (append into it).
+    final class DropCell: UICollectionViewCell {
+        static let reuseID = "DropCell"
+        private let label = UILabel()
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            label.text = "＋ 拖到这里添加"
+            label.textColor = .tertiaryLabel
+            label.font = .systemFont(ofSize: 13)
+            label.textAlignment = .center
+            label.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview(label)
+            NSLayoutConstraint.activate([
+                label.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
+                label.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+                label.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
+            ])
+            contentView.layer.cornerRadius = 10
+            contentView.layer.borderWidth = 1
+            contentView.layer.borderColor = UIColor.tertiaryLabel.withAlphaComponent(0.35).cgColor
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     }
 
     // MARK: - Hosting header
@@ -264,20 +323,25 @@ struct DragDropListView: UIViewRepresentable {
 
         func collectionView(_ cv: UICollectionView, numberOfItemsInSection section: Int) -> Int {
             let sec = sections[section]
-            return sec.collapsed ? 0 : sec.items.count
+            if sec.collapsed { return 0 }
+            return sec.items.isEmpty ? 1 : sec.items.count
         }
 
         func collectionView(
             _ cv: UICollectionView,
             cellForItemAt indexPath: IndexPath
         ) -> UICollectionViewCell {
+            let sec = sections[indexPath.section]
+            // Empty (dropable) list placeholder.
+            if sec.items.isEmpty {
+                return cv.dequeueReusableCell(withReuseIdentifier: DropCell.reuseID, for: indexPath)
+            }
             let cell = cv.dequeueReusableCell(withReuseIdentifier: ItemCell.reuseID, for: indexPath)
                 as! ItemCell
-            let sec = sections[indexPath.section]
             let item = sec.items[indexPath.item]
-            cell.configure(with: item) { [weak self] in
-                self?.parent.onToggle(item)
-            }
+            cell.configure(with: item,
+                           onToggle: { [weak self] in self?.parent.onToggle(item) },
+                           onOpen: { [weak self] in self?.parent.onOpen(item) })
             return cell
         }
 
@@ -304,6 +368,9 @@ struct DragDropListView: UIViewRepresentable {
 
         func collectionView(_ cv: UICollectionView, didSelectItemAt indexPath: IndexPath) {
             cv.deselectItem(at: indexPath, animated: true)
+            let sec = sections[indexPath.section]
+            guard indexPath.item < sec.items.count else { return }
+            parent.onToggle(sec.items[indexPath.item])
         }
 
         func collectionView(

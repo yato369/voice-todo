@@ -9,6 +9,7 @@ struct TodoListView: View {
 
     @State private var activeSheet: SheetType?
     @State private var listEditSheet: ListEditSheet?
+    @State private var openItem: TodoItem?
     @State private var layout: ListLayout = .grouped
     @State private var filterListID: UUID?
     @State private var filterTagID: UUID?
@@ -166,6 +167,9 @@ struct TodoListView: View {
                     EditListSheet(list: nil, parentPreset: parent)
                 }
             }
+            .sheet(item: $openItem) { item in
+                TodoDetailView(item: item)
+            }
             .onAppear {
                 ensureDefaultList()
             }
@@ -240,7 +244,8 @@ struct TodoListView: View {
             onToggle: { toggle($0) },
             onDelete: { deleteOne($0) },
             onCollapse: { toggleCollapse($0) },
-            onMove: { moveByDrag($0, toListID: $1, toIndex: $2) }
+            onMove: { moveByDrag($0, toListID: $1, toIndex: $2) },
+            onOpen: { openItem = $0 }
         )
     }
 
