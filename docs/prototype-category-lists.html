@@ -24,8 +24,9 @@
   main{max-width:620px; margin:0 auto; padding:0 12px;}
   .card{background:var(--card); border-radius:12px; margin:10px 0; overflow:hidden;}
   .sec-head{display:flex; align-items:center; gap:8px; padding:12px 16px 6px; font-size:15px; font-weight:650;}
-  .sec-head .dot{width:10px; height:10px; border-radius:3px;}
+  .sec-head .dot{width:10px; height:10px; border-radius:3px; flex:0 0 auto;}
   .sec-head .count{margin-left:auto; font-size:12px; color:var(--sub); font-weight:400;}
+  .sec-head .indent{width:0; height:1px; flex:0 0 auto;}
   .item{display:flex; align-items:flex-start; gap:10px; padding:11px 16px; transition:background .15s;}
   .item+.item{border-top:1px solid var(--sep);}
   .item.hl{background:#eef6ff;}
@@ -35,8 +36,9 @@
   .item.done .txt{color:var(--sub); text-decoration:line-through;}
   .col{flex:1; min-width:0;}
   .txt{font-size:16px; line-height:1.35; word-break:break-word;}
-  .meta{display:flex; gap:8px; font-size:12px; color:var(--sub); margin-top:3px;}
+  .meta{display:flex; gap:8px; font-size:12px; color:var(--sub); margin-top:3px; flex-wrap:wrap;}
   .bell{color:var(--accent);}
+  .chip{font-size:11px; color:var(--accent); background:rgba(10,132,255,.1); padding:1px 6px; border-radius:6px; font-weight:600;}
   .more{color:var(--sub); cursor:pointer; padding:4px;}
   .del{color:var(--red); cursor:pointer; padding:4px; display:none;}
   body.editing .del{display:block;}
@@ -52,7 +54,7 @@
   @keyframes up{from{transform:translateY(40px); opacity:0} to{transform:none; opacity:1}}
   .sheet h3{margin:6px 0 12px; font-size:17px; font-weight:700;}
   .sheetrow{display:flex; align-items:center; gap:12px; padding:12px 8px; border-bottom:1px solid var(--sep);}
-  .ico{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px;}
+  .ico{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px;flex:0 0 auto;}
   .nm{flex:1; font-size:16px;}
   .grip{color:#c7c7cc; font-size:18px; cursor:grab;}
   .tag{font-size:11px; color:var(--accent); font-weight:600;}
@@ -61,6 +63,7 @@
   .field label{display:block; font-size:12px; color:var(--sub); margin:0 0 6px 2px;}
   input[type=text]{width:100%; padding:11px 12px; font-size:16px; border:1px solid #d1d1d6;
     border-radius:10px; font-family:inherit; background:#fff;}
+  select{width:100%; padding:11px 12px; font-size:16px; border:1px solid #d1d1d6; border-radius:10px; font-family:inherit; background:#fff;}
   .swatches{display:flex; gap:10px; flex-wrap:wrap;}
   .swatch{width:34px;height:34px;border-radius:50%; cursor:pointer; display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;border:2px solid transparent;}
   .swatch.sel{border-color:#000;}
@@ -77,6 +80,8 @@
     font-size:14px; z-index:50; opacity:0; transition:.25s; pointer-events:none; white-space:nowrap;}
   .toast.show{opacity:1;}
   .swatch-row{display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;}
+  .sub-btn{display:block; width:100%; text-align:left; padding:10px 8px; font-size:15px;
+    color:var(--accent); background:none; border:none; cursor:pointer; border-bottom:1px solid var(--sep); font-family:inherit;}
 </style>
 </head>
 <body>
@@ -86,6 +91,7 @@
       <span class="ntitle">待办</span>
       <div class="mini">
         <button class="iconbtn" id="filterBtn" style="color:var(--sub)" onclick="openFilter()">⛃</button>
+        <button class="iconbtn" id="tagBtn" style="color:var(--sub)" onclick="openTagFilter()">#</button>
         <button class="iconbtn" onclick="toggleEdit()">✎</button>
       </div>
     </div>
@@ -107,22 +113,31 @@
 
 <script>
 // ================= 数据 =================
-const STORE="vt_proto_lists_v1";
+const STORE="vt_proto_lists_v2";
 const pal=["#E53935","#FB8C00","#FDD835","#43A047","#039BE5","#5E35B1","#8E24AA","#6D4C41"];
 const icons={"tray.fill":"📥","checklist":"☑️","book":"📚","briefcase":"💼","cart":"🛒","house":"🏠","bolt":"⚡","calendar":"📅","star":"⭐"};
-let mode='grouped', editing=false, filterListID=null, manageEdit=false;
+let mode='grouped', editing=false, filterListID=null, filterTag=null, manageEdit=false, movePending=null;
 
 function seed(){
   let s=localStorage.getItem(STORE);
   if(s)return JSON.parse(s);
-  const d={lists:[],items:[]};
-  d.lists=[{id:'inbox',name:'收件箱',color:'#039BE5',icon:'tray.fill',pos:0,def:true}];
+  const d={lists:[],items:[],tags:['重要','紧急','稍后']};
+  d.lists=[
+    {id:'inbox',name:'收件箱',color:'#039BE5',icon:'tray.fill',pos:0,def:true,parent:null},
+    {id:'study',name:'学习',color:'#5E35B1',icon:'book',pos:1,def:false,parent:null},
+    {id:'std-math',name:'数学',color:'#8E24AA',icon:'checklist',pos:0,def:false,parent:'study'},
+    {id:'std-eng',name:'英语',color:'#8E24AA',icon:'checklist',pos:1,def:false,parent:'study'},
+    {id:'life',name:'生活',color:'#43A047',icon:'house',pos:2,def:false,parent:null},
+    {id:'long',name:'长期计划',color:'#FB8C00',icon:'star',pos:3,def:false,parent:null},
+  ];
   const now=Date.now();
-  const I=(t,list,bell,ts=now,done=false)=>({id:uuid(),text:t,list,bell,ts,done});
+  const I=(t,list,tags,ts=now,done=false,bell=null)=>({id:uuid(),text:t,list,tags,bell,ts,done});
   d.items=[
-    I('复习英语单词','inbox',null,now+0),
-    I('去拿快递','inbox',null,now-1e5),
-    I('看完 PDF 第三章','inbox',null,now-2e5,true),
+    I('复习英语单词','std-eng',['重要'],now+0),
+    I('看完微积分第三章','std-math',['稍后'],now-1e5),
+    I('去拿快递','life',['紧急'],now-2e5),
+    I('读完一本书','long',['稍后'],now-3e5,false),
+    I('采购日用品','life',[],now-4e5,true),
   ];
   localStorage.setItem(STORE,JSON.stringify(d));
   return d;
@@ -131,36 +146,51 @@ let db=seed();
 function save(){localStorage.setItem(STORE,JSON.stringify(db));}
 function uuid(){return 'x'+Math.random().toString(36).slice(2,10);}
 
-// ================= 派生 =================
+// ================= 树结构 =================
+// 返回 [[list, depth], ...]，按父级排序后的展平树，任意层级。
+function treeLists(){
+  const out=[];
+  const sortedChildren=id=>db.lists.filter(l=>l.parent===id).sort((a,b)=>a.pos-b.pos);
+  (function walk(id,depth){ // id=null 表示顶层
+    sortedChildren(id).forEach(l=>{ out.push([l,depth]); walk(l.id,depth+1); });
+  })(null);
+  return out;
+}
 const listsSorted=()=>db.lists.slice().sort((a,b)=>a.pos-b.pos);
 const itemSort=(a,b)=>(a.done-b.done)||(b.ts-a.ts);
-const dimMap=()=>{const m={};listsSorted().forEach(l=>m[l.id]=l);return m;};
+const dimMap=()=>{const m={};db.lists.forEach(l=>m[l.id]=l);return m;};
 const defList=()=>db.lists.find(l=>l.def)||db.lists[0];
+const indentHTML=d=>d>0?`<span class="indent" style="width:${d*16}px"></span>`:'';
 
 // ================= 渲染主列表 =================
 function render(){
   document.querySelectorAll('.seg button').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));
   document.body.classList.toggle('editing',editing);
   document.getElementById('filterBtn').style.color=filterListID?'var(--accent)':'var(--sub)';
+  document.getElementById('tagBtn').style.color=filterTag?'var(--accent)':'var(--sub)';
   const c=document.getElementById('content');
   let html='';
 
   if(mode==='grouped'){
-    let groups=listsSorted().map(l=>({l,items:db.items.filter(i=>i.list===l.id)}));
-    const un=db.items.filter(i=>!i.list);
-    if(un.length)groups.push({l:{id:'__none__',name:'未分类',color:'#8e8e93',icon:'checklist'},items:un});
-    groups=groups.filter(g=>g.items.length>0);
-    html=groups.map(g=>section(g.l,g.items)).join('');
-    if(!html)html=card(empty('还没有待办<br>点右下角按钮，语音或文字输入创建待办'));
+    const groups=treeLists().map(([l,d])=>({l,d,items:db.items.filter(i=>i.list===l.id)}));
+    let built=groups.map(g=>{
+      if(!g.items.length)return '';
+      const head=`<div class="sec-head"><span class="dot" style="background:${g.l.color}"></span>${indentHTML(g.d)}&nbsp;${icons[g.l.icon]||'☑️'}&nbsp;${esc(g.l.name)}<span class="count">${g.items.length}</span></div>`;
+      return `<div class="card" data-secid="${g.l.id}">${head}${g.items.map(itemHTML).join('')}</div>`;
+    }).join('');
+    if(!built)html=card(empty('还没有待办<br>点右下角按钮，语音或文字输入创建待办'));
+    else html=built;
   }else{
     let arr=db.items.slice();
     const dim=dimMap();
     if(filterListID)arr=arr.filter(i=>i.list===filterListID);
+    if(filterTag)arr=arr.filter(i=>i.tags&&i.tags.includes(filterTag));
     arr.sort(itemSort);
-    const g={id:'all',name:filterListID?(dim[filterListID]?dim[filterListID].name:'筛选'):'全部',
-      color:filterListID?(dim[filterListID]?dim[filterListID].color:'#8e8e93'):'#8e8e93'};
-    html=section(g,arr);
-    if(!arr.length)html=card(empty(arr.length===0?'该列表暂无待办':'还没有待办'));
+    const name=filterTag?('#'+filterTag):(filterListID?(dim[filterListID]?dim[filterListID].name:'筛选'):'全部');
+    const color=filterTag?'#0a84ff':(filterListID?(dim[filterListID]?dim[filterListID].color:'#8e8e93'):'#8e8e93');
+    const head=`<div class="sec-head"><span class="dot" style="background:${color}"></span>&nbsp;${icons[dim[filterListID]&&dim[filterListID].icon]||'☑️'}&nbsp;${esc(name)}<span class="count">${arr.length}</span></div>`;
+    html=`<div class="card" data-secid="__flat__">${head}${arr.map(itemHTML).join('')}</div>`;
+    if(!arr.length)html=card(empty('暂无待办'));
   }
   c.innerHTML=html;
 }
@@ -168,14 +198,9 @@ function render(){
 const empty=t=>`<div class="empty">${t}</div>`;
 const card=h=>`<div class="card">${h}</div>`;
 
-function section(g,arr){
-  const head=`<div class="sec-head"><span class="dot" style="background:${g.color}"></span>&nbsp;${icons[g.icon]||'☑️'}&nbsp;${g.name}<span class="count">${arr.length}</span></div>`;
-  const rows=arr.map(i=>itemHTML(i)).join('');
-  return `<div class="card" data-secid="${g.id}">${head}${rows}</div>`;
-}
-
 function itemHTML(i){
   const bell=i.bell?`<span class="bell">🔔 ${i.bell}</span>`:'';
+  const chips=(i.tags||[]).map(t=>`<span class="chip">#${esc(t)}</span>`).join('');
   const when=new Date(i.ts).toLocaleString('zh-Hans',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
   return `
   <div class="item ${i.done?'done':''}"
@@ -186,7 +211,7 @@ function itemHTML(i){
     <div class="circle ${i.done?'done':''}" onclick="toggleItem('${i.id}')">${i.done?'✓':''}</div>
     <span class="col">
       <span class="txt">${esc(i.text)}</span>
-      <span class="meta">${when}${i.list?'':' · 未分类'}${bell}</span>
+      <span class="meta">${when}${i.list?'':' · 未分类'}${bell}${chips}</span>
     </span>
     <span class="more" onclick="moveMenu('${i.id}')">⋯</span>
     <button class="del" onclick="deleteItem('${i.id}')">✕</button>
@@ -205,7 +230,7 @@ document.addEventListener('drop',e=>{
   e.preventDefault(); e_clearHL();
   const id=e.dataTransfer.getData('text/plain'); if(!id)return;
   const card=(e.target.closest && e.target.closest('[data-secid]')) || null;
-  if(card) moveItem(id, card.getAttribute('data-secid'), true);
+  if(card && card.getAttribute('data-secid')!=='__flat__') moveItem(id, card.getAttribute('data-secid'), true);
 });
 document.addEventListener('dragover',e=>{ if(e.target.closest && e.target.closest('.card')) e.preventDefault(); });
 
@@ -218,7 +243,6 @@ function deleteItem(id){
 }
 function moveItem(id,listId,silent){
   const i=db.items.find(x=>x.id===id); if(!i)return;
-  if(listId==='__none__')return toast('未分类为临时视图，无法移入');
   const dim=dimMap(); const L=dim[listId]; if(!i||!L)return;
   if(i.list===listId)return;
   i.list=listId; save(); render();
@@ -227,9 +251,20 @@ function moveItem(id,listId,silent){
 function setMode(m){mode=m;render();}
 function openFilter(){
   const dim=dimMap();
+  const rows=treeLists().map(([l,d])=>
+    listRow({name:'··'.repeat(d)+l.name,color:l.color,icon:l.icon},filterListID===l.id?'sel':'',()=>{filterListID=l.id;close();render();})
+  ).join('');
   modal(`<h3 style="text-align:center">筛选列表</h3>
-    ${listRow({name:'全部列表',color:'#8e8e93',icon:'checklist'},filterListID===null?'sel':'', ()=>{filterListID=null;close();render();})}
-    ${listsSorted().map(l=>listRow(l,filterListID===l.id?'sel':'',()=>{filterListID=l.id;close();render();})).join('')}`);
+    ${listRow({name:'全部列表',color:'#8e8e93',icon:'checklist'},filterListID===null?'sel':'',()=>{filterListID=null;render();close();})}
+    ${rows}`);
+}
+function openTagFilter(){
+  const tags=(db.tags||[]).map(t=>
+    listRow({name:'#'+t,color:'#0a84ff',icon:'checklist'},filterTag===t?'sel':'',()=>{filterTag=t;render();close();})
+  ).join('');
+  modal(`<h3 style="text-align:center">筛选标签</h3>
+    ${listRow({name:'全部标签',color:'#8e8e93',icon:'checklist'},filterTag===null?'sel':'',()=>{filterTag=null;render();close();})}
+    ${tags}${(db.tags||[]).length?`<div class="sub-btn" onclick="manageTags()">＋ 管理标签</div>`:''}`);
 }
 function toggleEdit(){editing=!editing;render();}
 
@@ -245,77 +280,86 @@ function addItem(kind){
 }
 function pushItem(text){
   const d=defList();
-  db.items.push({id:uuid(),text,list:d.id,bell:null,ts:Date.now(),done:false});
+  db.items.push({id:uuid(),text,list:d.id,tags:[],bell:null,ts:Date.now(),done:false});
   save(); render(); toast('已加入「'+d.name+'」');
 }
 
 function moveMenu(id){
+  movePending=id;
   const dim=dimMap();
-  const rows=listsSorted().map(l=>{
+  const rows=treeLists().map(([l,d])=>{
     const cur=(db.items.find(x=>x.id===id)||{}).list===l.id;
-    return listRow(l,cur?'sel':'',()=>moveItem(id,l.id,false),cur?'✓':'');
+    return listRow({name:'··'.repeat(d)+l.name,color:l.color,icon:l.icon},cur?'sel':'',()=>moveItem(id,l.id,false),cur?'✓':'');
   }).join('');
   modal(`<h3 style="text-align:center">移动到列表</h3>${rows}`);
-  movePending=id;
 }
-let movePending=null;
 
 // ================= 列表管理 =================
 function openManage(){
   manageEdit=false; document.body.classList.remove('editman');
   modalRows();
-  bindReSort();
 }
-
 function modalRows(){
-  const rows=listsSorted().map(l=>`
-    <div class="sheetrow" data-lid="${l.id}" draggable="true" ondragstart="mDrag(event,'${l.id}')" ondragover="event.preventDefault()" ondrop="mDrop(event)">
-      <span class="grip">⠿</span>
+  const rows=treeLists().map(([l,d])=>`
+    <div class="sheetrow" data-lid="${l.id}">
       <span class="ico" style="background:${l.color}">${icons[l.icon]||'☑️'}</span>
-      <span class="nm">${esc(l.name)}${l.def?' <span class="tag">默认</span>':''}</span>
+      <span class="nm" style="padding-left:${d*16}px">${esc(l.name)}${l.def?' <span class="tag">默认</span>':''}</span>
       <button class="iconbtn" style="color:var(--accent)" onclick="editList('${l.id}')">编辑</button>
-      ${l.def?'':`<button class="iconbtn" style="color:var(--sub)" onclick="mkDef('${l.id}')">设默认</button>`}
-      <button class="iconbtn" style="color:var(--red)" onclick="delList('${l.id}')">删除</button>
+      ${l.def?'':`<button class="iconbtn" style="color:var(--sub)" onclick="mkDef('${l.id}')">设默</button>`}
+      <button class="iconbtn" style="color:var(--red)" onclick="delList('${l.id}')">删</button>
     </div>`).join('');
   modal(`<div style="display:flex;justify-content:space-between;align-items:center">
       <h3 style="margin:0">管理列表</h3>
       <button class="btn" style="color:var(--accent);background:none;padding:6px" onclick="openNew()">＋ 新建</button>
     </div>
     ${rows||`<div class="empty">还没有列表</div>`}
+    <div class="sub-btn" onclick="manageTags()"># 管理标签</div>
     <div class="btnrow"><button class="btn primary" onclick="close()">完成</button></div>
-    <div style="font-size:12px;color:var(--sub);margin-top:10px">拖住 ⠿ 可排序 · 删除列表会把其待办移回默认列表</div>`);
+    <div style="font-size:12px;color:var(--sub);margin-top:10px">编辑列表时选择父列表即可建立嵌套（二级/三级）· 删除列表会把其子树与待办移回默认列表</div>`);
 }
-let mFrom=null;
-function mDrag(e,id){mFrom=id;e.dataTransfer.setData('text/plain',id);}
-function mDrop(e){
-  e.preventDefault(); if(!mFrom)return;
-  const to=e.target.closest('[data-lid]'); if(!to)return;
-  const toId=to.getAttribute('data-lid');
-  if(mFrom===toId)return;
-  const arr=listsSorted(); const f=arr.findIndex(x=>x.id===mFrom), t=arr.findIndex(x=>x.id===toId);
-  arr.splice(t,0,arr.splice(f,1)[0]);
-  arr.forEach((l,i)=>l.pos=i); save(); modalRows(); bindReSort(); toast('已排序');
-}
-function bindReSort(){ /* rows draggable already */ }
 
 function mkDef(id){db.lists.forEach(l=>l.def=(l.id===id));save();modalRows();toast('新的默认列表已设置');}
+function topCount(parentId){ return db.lists.filter(l=>l.parent===parentId).length; }
 function delList(id){
   const l=db.lists.find(x=>x.id===id); if(!l)return;
-  if(l.def)return toast('默认「收件箱」不可删除');
-  if(!confirm('删除「'+l.name+'」？其待办将移回默认列表。'))return;
+  if(l.def)return toast('默认列表不可删除');
+  if(!confirm('删除「'+l.name+'」？其子列表与该列表内待办将移回默认列表。'))return;
   const d=defList();
-  db.items.forEach(i=>{if(i.list===id)i.list=d.id;});
-  db.lists=db.lists.filter(x=>x.id!==id); save(); modalRows(); toast('已删除');
+  function collect(pid){ let ids=[pid]; db.lists.forEach(x=>{ if(x.parent===pid) ids=ids.concat(collect(x.id)); }); return ids; }
+  const ids=collect(id);
+  db.items.forEach(i=>{ if(ids.includes(i.list)) i.list=d.id; });
+  db.lists=db.lists.filter(x=>!ids.includes(x.id)); save(); modalRows(); toast('已删除');
 }
 function editList(id){ openForm(db.lists.find(x=>x.id===id)); }
 function openNew(){ openForm(null); }
+function openNewChild(id){
+  const parent=(db.lists.find(x=>x.id===id))||null;
+  openForm(null,parent);
+}
 
-function openForm(list){
+// parent 选择候选：树中除自身及其子孙外的所有列表
+function parentOptions(list){
+  const excl=new Set();
+  if(list){
+    excl.add(list.id);
+    function cc(pid){db.lists.forEach(l=>{ if(l.parent===pid){ excl.add(l.id); cc(l.id); } });}
+    cc(list.id);
+  }
+  return treeLists().filter(([l])=>!excl.has(l.id));
+}
+
+function openForm(list,presetParent){
   const isNew=!list;
   const c=(list&&list.color)||pal[0], ic=(list&&list.icon)||'checklist', nm=(list&&list.name)||'';
+  const curParent=(list&&list.parent)||(presetParent&&presetParent.id)||null;
+  const popts=parentOptions(list);
+  const parentSel=`<option value="">（无 — 顶层列表）</option>`+
+    popts.map(([l,d])=>`<option value="${l.id}" ${l.id===curParent?'selected':''}>${'　'.repeat(d)}${esc(l.name)}</option>`).join('');
   modal(`
     <h3>${isNew?'新建列表':'编辑列表'}</h3>
     <div class="field"><label>名称</label><input type="text" id="fn" value="${esc(nm)}" placeholder="如：学习 / 生活杂事 / 长期计划"></div>
+    <div class="field"><label>父列表（建立二级/三级分类）</label>
+      <select id="fparent">${parentSel}</select></div>
     <div class="field"><label>颜色</label>
       <div class="swatches" id="fcolor">${pal.map(h=>`<span class="swatch ${h===c?'sel':''}" data-h="${h}" style="background:${h}">${h===c?'✓':''}</span>`).join('')}</div>
     </div>
@@ -341,14 +385,46 @@ function saveForm(id){
   const color=(document.querySelector('#fcolor .swatch.sel')||{}).dataset?document.querySelector('#fcolor .swatch.sel').dataset.h:pal[0];
   const iconEl=document.querySelector('#ficon .ic.sel');
   const icon=iconEl?iconEl.dataset.i:'checklist';
+  const parentId=document.getElementById('fparent').value||null;
   if(id){
-    const l=db.lists.find(x=>x.id===id); if(l){l.name=name;l.color=color;l.icon=icon;}
+    const l=db.lists.find(x=>x.id===id); if(l){l.name=name;l.color=color;l.icon=icon;l.parent=parentId;}
   }else{
-    db.lists.push({id:uuid(),name,color,icon,pos:db.lists.length,def:db.lists.length===0});
+    const cnt=db.lists.filter(x=>x.parent===parentId).length;
+    db.lists.push({id:uuid(),name,color,icon,pos:cnt,def:db.lists.length===0,parent:parentId});
   }
   save(); close(); openManage(); toast(id?'已保存':'已创建');
 }
 function delListFromForm(id){ close(); delList(id); }
+
+// ================= 标签管理 =================
+function manageTags(){
+  db.tags=db.tags||[];
+  const rows=db.tags.map(t=>`
+    <div class="sheetrow">
+      <span class="ico" style="background:#0a84ff">#</span>
+      <span class="nm">${esc(t)}</span>
+      <button class="iconbtn" style="color:var(--red)" onclick="delTag('${esc(t)}')">删除</button>
+    </div>`).join('');
+  modal(`<h3 style="text-align:center">管理标签</h3>
+    <div class="sheetrow">
+      <span class="ico" style="background:#0a84ff">#</span>
+      <span class="nm"><input type="text" id="ntag" placeholder="新标签" style="padding:8px 10px"></span>
+      <button class="iconbtn" style="color:var(--accent)" onclick="addTag()">添加</button>
+    </div>
+    ${rows||'<div class="empty">还没有标签</div>'}
+    <div class="btnrow"><button class="btn primary" onclick="close()">完成</button></div>`);
+}
+function addTag(){
+  const v=(document.getElementById('ntag').value||'').trim(); if(!v)return;
+  db.tags=db.tags||[]; if(db.tags.includes(v))return toast('标签已存在');
+  db.tags.push(v); save(); manageTags(); toast('已添加');
+}
+function delTag(t){
+  db.tags=db.tags.filter(x=>x!==t);
+  db.items.forEach(i=>{ i.tags=(i.tags||[]).filter(x=>x!==t); });
+  if(filterTag===t)filterTag=null;
+  save(); manageTags(); toast('已删除');
+}
 
 // ================= 通用 =================
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}

@@ -15,6 +15,13 @@ final class TodoList {
     var createdAt: Date
     var isDefault: Bool
 
+    /// Optional parent for hierarchical (arbitrary-depth) classification.
+    var parent: TodoList?
+
+    /// Child lists; deleting a list cascades to its subtree.
+    @Relationship(deleteRule: .cascade, inverse: \TodoList.parent)
+    var children: [TodoList] = []
+
     @Relationship(deleteRule: .nullify, inverse: \TodoItem.list)
     var items: [TodoItem] = []
 
@@ -24,7 +31,8 @@ final class TodoList {
         colorHex: String? = nil,
         iconName: String? = nil,
         createdAt: Date = Date(),
-        isDefault: Bool = false
+        isDefault: Bool = false,
+        parent: TodoList? = nil
     ) {
         self.name = name
         self.position = position
@@ -32,6 +40,7 @@ final class TodoList {
         self.iconName = iconName
         self.createdAt = createdAt
         self.isDefault = isDefault
+        self.parent = parent
     }
 
     var color: Color {

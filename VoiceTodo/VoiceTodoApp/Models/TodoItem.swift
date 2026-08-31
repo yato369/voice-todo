@@ -15,13 +15,20 @@ final class TodoItem {
     /// The category list this to-do belongs to (nil pending default backfill).
     var list: TodoList?
 
+    /// Manual sort order within its list (lower = higher up).
+    var position: Int = 0
+
+    /// Cross-cutting labels (优先级 / 来源, …). Many-to-many.
+    @Relationship(inverse: \Tag.items) var tags: [Tag] = []
+
     init(
         text: String,
         audioFileName: String? = nil,
         createdAt: Date = Date(),
         isCompleted: Bool = false,
         completedAt: Date? = nil,
-        reminderDate: Date? = nil
+        reminderDate: Date? = nil,
+        position: Int = 0
     ) {
         self.text = text
         self.audioFileName = audioFileName
@@ -29,6 +36,7 @@ final class TodoItem {
         self.isCompleted = isCompleted
         self.completedAt = completedAt
         self.reminderDate = reminderDate
+        self.position = position
     }
 
     var calendarDate: Date {

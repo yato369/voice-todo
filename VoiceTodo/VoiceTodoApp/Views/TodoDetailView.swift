@@ -5,12 +5,27 @@ import AVFoundation
 struct TodoDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \TodoList.position) private var lists: [TodoList]
+    @Query(sort: \Tag.createdAt) private var tags: [Tag]
     @Bindable var item: TodoItem
 
     @State private var audioPlayer: AVAudioPlayer?
     @State private var isPlaying = false
+    @State private var newTagName: String = ""
 
     private var storage: StorageServiceProtocol { StorageService(context: modelContext) }
+
+    /// Flattened list tree with depth, so the picker shows the hierarchy.
+    private var flattenedLists: [(list: TodoList, depth: Int)] {
+        var out: [(TodoList, Int)] = []
+        func walk(_ roots: [TodoList], _ depth: Int) {
+            for l in roots.sorted(by: { $0.position < $1.position }) {
+                out.append((l, depth))
+                walk(l.children, depth + 1)
+            }
+        }
+        walk(lists.filter { $0.parent == nil }, 0)
+        return out
+    }
 
     var body: some View {
         Form {
@@ -36,22 +51,46 @@ struct TodoDetailView: View {
             }
 
             Section("列表") {
-                if lists.isEmpty {
+                if flattenedLists.isEmpty {
                     Text("未创建列表")
                         .foregroundStyle(.secondary)
                 } else {
                     Picker("归属列表", selection: Binding(
-                        get: { item.list?.id ?? lists.first?.id },
+                        get: { item.list?.id ?? flattenedLists.first?.list.id },
                         set: { id in
                             item.list = lists.first { $0.id == id }
                             try? storage.save()
                         }
                     )) {
-                        ForEach(lists) { list in
-                            Label(list.name, systemImage: list.iconName ?? "checklist")
-                                .tag(Optional(list.id))
+                        ForEach(flattenedLists, id: \.list.id) { entry in
+                            Text(String(repeating: "　", count: entry.depth) + "・" + entry.list.name)
+                                .tag(Optional(entry.list.id))
                         }
                     }
+                }
+            }
+
+            Section("标签") {
+                ForEach(tags) { tag in
+                    let isOn = item.tags.contains { $0.id == tag.id }
+                    Button {
+                        toggleTag(tag)
+                    } label: {
+                        HStack {
+                            Label(tag.name, systemImage: tag.color == .accentColor ? "tag" : "tag.fill")
+                                .foregroundStyle(tag.color == .accentColor ? Color.primary : tag.color)
+                            Spacer()
+                            if isOn {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(.accentColor)
+                            }
+                        }
+                    }
+                }
+                HStack {
+                    TextField("新标签", text: $newTagName)
+                    Button("添加") { addTag() }
+                        .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
 
@@ -82,6 +121,31 @@ struct TodoDetailView: View {
         .onDisappear {
             audioPlayer?.stop()
         }
+    }
+
+    private func toggleTag(_ tag: Tag) {
+        if let index = item.tags.firstIndex(where: { $0.id == tag.id }) {
+            item.tags.remove(at: index)
+        } else {
+            item.tags.append(tag)
+        }
+        try? storage.save()
+    }
+
+    private func addTag() {
+        let trimmed = newTagName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let existing = tags.first { $0.name == trimmed }
+        let tag = existing ?? {
+            let newTag = Tag(name: trimmed)
+            modelContext.insert(newTag)
+            return newTag
+        }()
+        if !item.tags.contains(where: { $0.id == tag.id }) {
+            item.tags.append(tag)
+        }
+        newTagName = ""
+        try? modelContext.save()
     }
 
     private func togglePlayback(_ fileName: String) {

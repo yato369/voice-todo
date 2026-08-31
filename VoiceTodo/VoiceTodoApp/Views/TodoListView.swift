@@ -5,10 +5,12 @@ struct TodoListView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \TodoItem.createdAt, order: .reverse) private var items: [TodoItem]
     @Query(sort: \TodoList.position) private var lists: [TodoList]
+    @Query(sort: \Tag.createdAt) private var tags: [Tag]
 
     @State private var activeSheet: SheetType?
     @State private var layout: ListLayout = .grouped
     @State private var filterListID: UUID?
+    @State private var filterTagID: UUID?
 
     private var storage: StorageServiceProtocol { StorageService(context: modelContext) }
 
@@ -23,51 +25,79 @@ struct TodoListView: View {
         case flat = "全部"
     }
 
-    /// A rendered section for a category list in grouped mode.
-    private struct SectionModel: Identifiable {
+    /// A rendered group = one list at some tree depth, plus its items.
+    private struct Group: Identifiable {
         let id: UUID
+        let list: TodoList?       // nil for the unassigned fallback bucket
         let title: String
         let color: Color
         let icon: String
+        let depth: Int
         let items: [TodoItem]
     }
 
-    /// Sort: incomplete first, then newest first.
-    private func sort(_ a: TodoItem, _ b: TodoItem) -> Bool {
+    // MARK: - Sorting
+
+    /// In-list manual order: completed at the end, then position, then newest.
+    private func sortInList(_ a: TodoItem, _ b: TodoItem) -> Bool {
+        if a.isCompleted != b.isCompleted { return !a.isCompleted }
+        if a.position != b.position { return a.position < b.position }
+        return a.createdAt > b.createdAt
+    }
+
+    private func sortFlat(_ a: TodoItem, _ b: TodoItem) -> Bool {
         if a.isCompleted != b.isCompleted { return !a.isCompleted }
         return a.createdAt > b.createdAt
     }
 
-    // MARK: - Section model
+    private func itemsSorted(forList id: UUID) -> [TodoItem] {
+        items.filter { $0.list?.id == id }.sorted(by: sortInList)
+    }
 
-    private var sections: [SectionModel] {
-        var result: [SectionModel] = lists.map { list in
-            SectionModel(
-                id: list.id,
-                title: list.name,
-                color: list.color,
-                icon: list.iconName ?? "checklist",
-                items: items.filter { $0.list?.id == list.id }.sorted(by: sort)
+    // MARK: - Tree flattening (arbitrary depth)
+
+    private var rootLists: [TodoList] {
+        lists.filter { $0.parent == nil }.sorted { $0.position < $1.position }
+    }
+
+    private var flattenedLists: [(list: TodoList, depth: Int)] {
+        var out: [(TodoList, Int)] = []
+        func walk(_ roots: [TodoList], _ depth: Int) {
+            for list in roots {
+                out.append((list, depth))
+                walk(list.children.sorted { $0.position < $1.position }, depth + 1)
+            }
+        }
+        walk(rootLists, 0)
+        return out
+    }
+
+    private var groups: [Group] {
+        var out = flattenedLists.map { pair in
+            Group(
+                id: pair.list.id,
+                list: pair.list,
+                title: pair.list.name,
+                color: pair.list.color,
+                icon: pair.list.iconName ?? "checklist",
+                depth: pair.depth,
+                items: itemsSorted(forList: pair.list.id)
             )
         }
-
-        // Safety net: items without a list (prior to default backfill).
-        let unassigned = items.filter { $0.list == nil }.sorted(by: sort)
+        // Safety net: items without a list (pre-backfill).
+        let unassigned = items.filter { $0.list == nil }.sorted(by: sortInList)
         if !unassigned.isEmpty {
-            result.append(SectionModel(
-                id: UUID(),
-                title: "未分类",
-                color: .gray,
-                icon: "circle",
-                items: unassigned
-            ))
+            out.append(Group(id: UUID(), list: nil, title: "未分类", color: .gray,
+                             icon: "circle", depth: 0, items: unassigned))
         }
-        return result
+        return out
     }
 
     private var filteredItems: [TodoItem] {
-        let base = filterListID == nil ? items : items.filter { $0.list?.id == filterListID }
-        return base.sorted(by: sort)
+        var base = items
+        if let filterListID { base = base.filter { $0.list?.id == filterListID } }
+        if let filterTagID { base = base.filter { $0.tags.contains { $0.id == filterTagID } } }
+        return base.sorted(by: sortFlat)
     }
 
     // MARK: - Body
@@ -105,9 +135,8 @@ struct TodoListView: View {
                     EditButton()
                 }
                 if layout == .flat {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        filterMenu
-                    }
+                    ToolbarItem(placement: .topBarTrailing) { listFilterMenu }
+                    ToolbarItem(placement: .topBarTrailing) { tagFilterMenu }
                 }
             }
             .overlay(alignment: .bottomTrailing) {
@@ -133,7 +162,7 @@ struct TodoListView: View {
         .padding(.vertical, 8)
     }
 
-    private var filterMenu: some View {
+    private var listFilterMenu: some View {
         Menu {
             Button {
                 filterListID = nil
@@ -141,47 +170,97 @@ struct TodoListView: View {
                 Label("全部列表", systemImage: filterListID == nil ? "checkmark" : "line.3.horizontal")
             }
             Divider()
-            ForEach(lists) { list in
+            ForEach(flattenedLists, id: \.list.id) { pair in
                 Button {
-                    filterListID = list.id
+                    filterListID = pair.list.id
                 } label: {
-                    Label(list.name, systemImage: filterListID == list.id ? "checkmark" : "circle")
+                    Label(prefix(pair.depth) + pair.list.name,
+                          systemImage: filterListID == pair.list.id ? "checkmark.circle" : "circle")
                 }
             }
         } label: {
-            Image(systemName: "line.3.horizontal.decrease")
+            Image(systemName: "folder")
         }
+    }
+
+    private var tagFilterMenu: some View {
+        Menu {
+            Button {
+                filterTagID = nil
+            } label: {
+                Label("全部标签", systemImage: filterTagID == nil ? "checkmark" : "tag")
+            }
+            Divider()
+            ForEach(tags) { tag in
+                Button {
+                    filterTagID = tag.id
+                } label: {
+                    Label(tag.name, systemImage: filterTagID == tag.id ? "checkmark" : "tag")
+                }
+            }
+            if tags.isEmpty {
+                Text("还没有标签")
+            }
+        } label: {
+            Image(systemName: "tag")
+        }
+    }
+
+    private func prefix(_ depth: Int) -> String {
+        String(repeating: "　", count: depth)
     }
 
     // MARK: - Grouped list
 
     private var groupedList: some View {
         List {
-            ForEach(sections) { section in
+            ForEach(groups) { group in
                 Section {
-                    ForEach(section.items) { item in
+                    ForEach(group.items) { item in
                         TodoRow(item: item) {
                             toggle(item)
                         }
                         .draggable(item.id.uuidString)
                         .contextMenu { moveMenu(for: item) }
                         .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                deleteOne(item)
+                            } label: {
+                                Label("删除", systemImage: "trash")
+                            }
                             moveSwipeButton(for: item)
                         }
                     }
-                    .onDelete { offsets in
-                        delete(at: offsets, in: section)
-                    }
+                    .onDelete { offsets in delete(at: offsets, in: group) }
+                    .onMove { from, to in reorderItems(in: group, from: from, to: to) }
                     .dropDestination(for: String.self) { payload, _ in
-                        move(payload, to: section)
+                        moveDropped(payload, to: group.id)
                     }
                 } header: {
-                    Label(section.title, systemImage: section.icon)
-                        .foregroundStyle(section.color)
-                        .font(.subheadline.weight(.semibold))
+                    groupHeader(group)
                 }
             }
         }
+    }
+
+    private func groupHeader(_ group: Group) -> some View {
+        HStack(spacing: 6) {
+            if group.depth > 0 {
+                Rectangle()
+                    .fill(Color.clear)
+                    .frame(width: CGFloat(group.depth) * 16, height: 1)
+            }
+            Circle().fill(group.color).frame(width: 10, height: 10)
+            Image(systemName: group.icon)
+            Text(group.title)
+                .lineLimit(1)
+            Spacer()
+            Text("\(group.items.count)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .font(.subheadline.weight(.semibold))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Flat list
@@ -194,6 +273,9 @@ struct TodoListView: View {
                 }
                 .contextMenu { moveMenu(for: item) }
                 .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) { deleteOne(item) } label: {
+                        Label("删除", systemImage: "trash")
+                    }
                     moveSwipeButton(for: item)
                 }
             }
@@ -201,13 +283,11 @@ struct TodoListView: View {
         }
     }
 
-    // MARK: - Actions
+    // MARK: - FAB
 
     private var actionButtons: some View {
         VStack(spacing: 12) {
-            Button {
-                activeSheet = .text
-            } label: {
+            Button { activeSheet = .text } label: {
                 Image(systemName: "plus")
                     .font(.title2.weight(.semibold))
                     .frame(width: 56, height: 56)
@@ -216,10 +296,7 @@ struct TodoListView: View {
                     .clipShape(Circle())
                     .shadow(radius: 4, y: 2)
             }
-
-            Button {
-                activeSheet = .voice
-            } label: {
+            Button { activeSheet = .voice } label: {
                 Image(systemName: "mic.fill")
                     .font(.title2)
                     .frame(width: 56, height: 56)
@@ -233,6 +310,8 @@ struct TodoListView: View {
         .padding(.bottom, 12)
     }
 
+    // MARK: - Actions
+
     private func toggle(_ item: TodoItem) {
         item.isCompleted.toggle()
         item.completedAt = item.isCompleted ? Date() : nil
@@ -242,35 +321,46 @@ struct TodoListView: View {
         try? storage.save()
     }
 
-    private func delete(at offsets: IndexSet, in section: SectionModel) {
+    private func deleteOne(_ item: TodoItem) {
+        NotificationService.shared.cancelReminder(id: item.id.uuidString)
+        try? storage.delete(item)
+    }
+
+    private func delete(at offsets: IndexSet, in group: Group) {
         for index in offsets {
-            let item = section.items[index]
-            NotificationService.shared.cancelReminder(id: item.id.uuidString)
-            try? storage.delete(item)
+            deleteOne(group.items[index])
         }
     }
 
     private func deleteFlatItems(at offsets: IndexSet) {
         for index in offsets {
-            let item = filteredItems[index]
-            NotificationService.shared.cancelReminder(id: item.id.uuidString)
-            try? storage.delete(item)
+            deleteOne(filteredItems[index])
         }
     }
 
-    // MARK: - Moving items between lists
+    private func reorderItems(in group: Group, from source: IndexSet, to destination: Int) {
+        // The unassigned fallback bucket has no stored list to persist order to.
+        guard group.list != nil, group.list != nil, lists.contains(where: { $0.id == group.id }) else { return }
+        var arr = group.items
+        arr.move(fromOffsets: source, toOffset: destination)
+        for (index, item) in arr.enumerated() {
+            item.position = index
+        }
+        try? storage.save()
+    }
+
+    // MARK: - Moving between lists
 
     private func moveMenu(for item: TodoItem) -> some View {
         Menu("移动到列表") {
-            ForEach(lists) { list in
+            ForEach(flattenedLists, id: \.list.id) { pair in
                 Button {
-                    item.list = list
-                    try? storage.save()
+                    assign(item, to: pair.list)
                 } label: {
-                    if item.list?.id == list.id {
-                        Label(list.name, systemImage: "checkmark")
+                    if item.list?.id == pair.list.id {
+                        Label(prefix(pair.depth) + pair.list.name, systemImage: "checkmark")
                     } else {
-                        Text(list.name)
+                        Text(prefix(pair.depth) + pair.list.name)
                     }
                 }
             }
@@ -279,12 +369,11 @@ struct TodoListView: View {
 
     private func moveSwipeButton(for item: TodoItem) -> some View {
         Menu {
-            ForEach(lists) { list in
+            ForEach(flattenedLists, id: \.list.id) { pair in
                 Button {
-                    item.list = list
-                    try? storage.save()
+                    assign(item, to: pair.list)
                 } label: {
-                    Text(list.name)
+                    Text(prefix(pair.depth) + pair.list.name)
                 }
             }
         } label: {
@@ -293,20 +382,24 @@ struct TodoListView: View {
         .tint(.gray)
     }
 
-    private func move(_ payload: [String], to section: SectionModel) {
+    private func assign(_ item: TodoItem, to list: TodoList) {
+        guard item.list?.id != list.id else { return }
+        item.list = list
+        item.position = itemsSorted(forList: list.id).count   // append at the end
+        try? storage.save()
+    }
+
+    private func moveDropped(_ payload: [String], to id: UUID) -> Bool {
         guard let idString = payload.first,
               let uuid = UUID(uuidString: idString),
               let dragged = items.first(where: { $0.id == uuid }),
-              let target = lists.first(where: { $0.id == section.id }) else { return }
-        guard dragged.list?.id != target.id else { return }
-        dragged.list = target
-        try? storage.save()
+              let target = lists.first(where: { $0.id == id }) else { return false }
+        assign(dragged, to: target)
+        return true
     }
 
     // MARK: - Default list (idempotent seeding)
 
-    /// Creates the default "Inbox" list if absent, and backfills items
-    /// that have no list yet. Safe to call repeatedly.
     private func ensureDefaultList() {
         let defaultList = lists.first { $0.isDefault }
         let listToUse: TodoList = defaultList ?? {
