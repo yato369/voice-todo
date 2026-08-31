@@ -29,6 +29,8 @@
   .sec-head .indent{width:0; height:1px; flex:0 0 auto;}
   .item{display:flex; align-items:flex-start; gap:10px; padding:11px 16px; transition:background .15s;}
   .item+.item{border-top:1px solid var(--sep);}
+  .empty-slot{margin:4px 12px 8px; padding:10px; text-align:center; font-size:12px; color:var(--sub);
+    border-radius:8px; border:1px dashed var(--sep);}
   .item.hl{background:#eef6ff;}
   .circle{width:26px; height:26px; flex:0 0 26px; border-radius:50%; border:1.5px solid var(--sub);
     display:flex; align-items:center; justify-content:center; margin-top:2px; cursor:pointer;}
@@ -177,12 +179,13 @@ function render(){
   if(mode==='grouped'){
     const groups=treeLists().map(([l,d])=>({l,d,items:db.items.filter(i=>i.list===l.id)}));
     let built=groups.map(g=>{
-      if(!g.items.length && !collapsedLists.has(g.l.id))return '';
       const chev=collapsedLists.has(g.l.id)?'›':'⌄';
       const head=`<div class="sec-head" data-sech="${g.l.id}" onclick="toggleCollapse('${g.l.id}')" oncontextmenu="openForm(db_lists('${g.l.id}'));return false">
         <span class="chev">${chev}</span><span class="dot" style="background:${g.l.color}"></span>${indentHTML(g.d)}&nbsp;${icons[g.l.icon]||'☑️'}&nbsp;${esc(g.l.name)}<span class="count">${g.items.length}</span></div>`;
-      const items=collapsedLists.has(g.l.id)?'':g.items.map(i=>itemHTML(i,g.d)).join('');
-      return `<div class="card" data-secid="${g.l.id}">${head}${items}</div>`;
+      if(collapsedLists.has(g.l.id)) return `<div class="card" data-secid="${g.l.id}">${head}</div>`;
+      // 空列表渲染一个可拖入的占位槽，保证它仍是拖放目标
+      const body=g.items.length ? g.items.map(i=>itemHTML(i,g.d)).join('') : emptySlotHTML(g.l.id);
+      return `<div class="card" data-secid="${g.l.id}">${head}${body}</div>`;
     }).join('');
     if(!built)html=card(empty('还没有待办<br>点右下角按钮，语音或文字输入创建待办'));
     else html=built;
@@ -234,6 +237,17 @@ function itemHTML(i,d=0){
 }
 
 function db_lists(id){ return db.lists.find(x=>x.id===id); }
+
+// 空列表占位槽：作为拖放目标接收其他列表拖入的任务
+function emptySlotHTML(listId){
+  return `<div class="empty-slot" data-secid="${listId}" data-empty="1"
+       ondragover="event.preventDefault()"
+       ondrop="event.preventDefault();dropHolder(event,'${listId}')">＋ 拖到这里添加</div>`;
+}
+function dropHolder(e,listId){
+  e_clearHL();
+  const id=e.dataTransfer.getData('text/plain'); if(id) moveItem(id,listId,true);
+}
 
 function toggleCollapse(id){
   if(collapsedLists.has(id)) collapsedLists.delete(id); else collapsedLists.add(id);
