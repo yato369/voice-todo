@@ -30,6 +30,7 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath build/VoiceTodo.xcarchive \
             CODE_SIGNING_ALLOWED=NO \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             archive
 
       - name: Create unsigned IPA

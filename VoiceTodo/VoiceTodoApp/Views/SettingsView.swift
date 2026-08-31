@@ -22,7 +22,8 @@ struct SettingsView: View {
                     )
                 }
                 Section("关于") {
-                    LabeledContent("版本", value: "0.1.0")
+                    LabeledContent("版本", value: Self.appVersion)
+                    LabeledContent("构建号", value: Self.buildNumber)
                     Text("本地优先的语音待办。录音转文字，自动进入待办与日历，数据不出本机。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -30,6 +31,17 @@ struct SettingsView: View {
             }
             .navigationTitle("设置")
         }
+    }
+
+    /// Marketing version (e.g. 0.1.0).
+    private static var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0"
+    }
+
+    /// Build number injected by CI (GitHub run number). Lets you confirm at a
+    /// glance that the installed build is the latest.
+    private static var buildNumber: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
     }
 }
 
