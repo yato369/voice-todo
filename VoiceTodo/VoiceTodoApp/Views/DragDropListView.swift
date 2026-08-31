@@ -446,7 +446,7 @@ struct DragDropListView: UIViewRepresentable {
         }
 
         /// Canonical incremental reorder: update the in-memory `sections` array
-        /// to the target arrangement, animate a single `moveItem`, finalize the
+        /// to the target arrangement, animate delete + insert, finalize the
         /// drop, and only THEN persist the new order to SwiftData. No
         /// `reloadData()` inside the drop transaction (that would cancel it).
         func collectionView(
@@ -461,22 +461,43 @@ struct DragDropListView: UIViewRepresentable {
             }
             let sourceIP = dropItem.sourceIndexPath
 
-            // 1. Move the item in the in-memory data (authoritative for UI).
+            // 1. Update the authoritative in-memory model first.
             removeItem(source)
             insertItem(source, at: destination)
 
-            // 2. Animate the single incremental move.
-            cv.performBatchUpdates {
-                if let sourceIP {
-                    cv.moveItem(at: sourceIP, to: destination)
+            // 2. The item's final location in the updated model. Using delete +
+            //    insert (instead of moveItem) avoids the "index path does not
+            //    exist" crash when appending to a section end or crossing
+            //    sections, where the destination index equals the target
+            //    section's item count.
+            let finalIP = currentIndexPath(of: source)
+
+            if sourceIP != nil || finalIP != nil, sourceIP != finalIP {
+                cv.performBatchUpdates {
+                    if let sourceIP {
+                        cv.deleteItems(at: [sourceIP])
+                    }
+                    if let finalIP {
+                        cv.insertItems(at: [finalIP])
+                    }
                 }
             }
 
-            // 3. Finalize the drag/drop session at the destination.
-            coordinator.drop(dropItem.dragItem, toItemAt: destination)
+            // 3. Finalize the drop at the (valid) final location.
+            coordinator.drop(dropItem.dragItem, toItemAt: finalIP ?? destination)
 
-            // 4. Persist the new order to SwiftData (positions + list).
+            // 4. Persist the new order to SwiftData.
             persistOrder()
+        }
+
+        /// Current location of `item` within the in-memory sections array.
+        private func currentIndexPath(of item: TodoItem) -> IndexPath? {
+            for (si, sec) in sections.enumerated() {
+                if let ri = sec.items.firstIndex(where: { $0.id == item.id }) {
+                    return IndexPath(item: ri, section: si)
+                }
+            }
+            return nil
         }
 
         /// Remove `item` from whichever section currently holds it.
