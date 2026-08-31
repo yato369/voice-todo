@@ -22,7 +22,7 @@ private struct TodoRowDropDelegate: DropDelegate {
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        guard let provider = info.itemProviders.first else { return false }
+        guard let provider = info.itemProviders(for: dropTypes).first else { return false }
         _ = provider.loadObject(ofClass: NSString.self) { object, _ in
             guard let string = object as? String,
                   let draggedID = UUID(uuidString: string) else { return }
@@ -47,7 +47,7 @@ private struct ListHeaderDropDelegate: DropDelegate {
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        guard let provider = info.itemProviders.first else { return false }
+        guard let provider = info.itemProviders(for: dropTypes).first else { return false }
         _ = provider.loadObject(ofClass: NSString.self) { object, _ in
             guard let string = object as? String,
                   let draggedID = UUID(uuidString: string) else { return }
