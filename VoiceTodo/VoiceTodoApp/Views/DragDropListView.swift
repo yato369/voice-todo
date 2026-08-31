@@ -378,29 +378,79 @@ struct DragDropListView: UIViewRepresentable {
             )
         }
 
+        /// Canonical incremental reorder: update the in-memory `sections` array
+        /// to the target arrangement, animate a single `moveItem`, finalize the
+        /// drop, and only THEN persist the new order to SwiftData. No
+        /// `reloadData()` inside the drop transaction (that would cancel it).
         func collectionView(
             _ cv: UICollectionView,
             performDropWith coordinator: UICollectionViewDropCoordinator
         ) {
-            guard let destination = coordinator.destinationIndexPath,
-                  destination.section < sections.count else { return }
-            guard let draggedItem = coordinator.items.first,
-                  let source = draggedItem.dragItem.localObject as? TodoItem else {
+            guard let destination = coordinator.destinationIndexPath else { return }
+            guard let dropItem = coordinator.items.first,
+                  let source = dropItem.dragItem.localObject as? TodoItem else {
                 cv.reloadData()
                 return
             }
-            let targetListID = sections[destination.section].listID
-            let toIndex = destination.item
+            let sourceIP = dropItem.sourceIndexPath
 
-            // 1. Persist the move through SwiftUI (updates model + saves).
-            parent.onMove(source, targetListID, toIndex)
+            // 1. Move the item in the in-memory data (authoritative for UI).
+            removeItem(source)
+            insertItem(source, at: destination)
 
-            // 2. Rebuild from the just-persisted model so the UI and storage
-            //    are guaranteed in sync (no stale snapshot).
-            apply(using: cv)
+            // 2. Animate the single incremental move.
+            cv.performBatchUpdates {
+                if let sourceIP {
+                    cv.moveItem(at: sourceIP, to: destination)
+                }
+            }
 
-            // 3. Finalize the drop animation at the destination.
-            coordinator.drop(draggedItem.dragItem, toItemAt: destination)
+            // 3. Finalize the drag/drop session at the destination.
+            coordinator.drop(dropItem.dragItem, toItemAt: destination)
+
+            // 4. Persist the new order to SwiftData (positions + list).
+            persistOrder()
+        }
+
+        /// Remove `item` from whichever section currently holds it.
+        private func removeItem(_ item: TodoItem) {
+            for (si, sec) in sections.enumerated() {
+                if let ri = sec.items.firstIndex(where: { $0.id == item.id }) {
+                    var newArr = sec.items
+                    newArr.remove(at: ri)
+                    sections[si] = Section(listID: sec.listID, name: sec.name,
+                                           color: sec.color, icon: sec.icon, depth: sec.depth,
+                                           count: newArr.count, collapsed: sec.collapsed,
+                                           items: newArr)
+                    return
+                }
+            }
+        }
+
+        /// Insert `item` into section at `indexPath.item` (clamped).
+        private func insertItem(_ item: TodoItem, at ip: IndexPath) {
+            guard ip.section < sections.count else { return }
+            var sec = sections[ip.section]
+            let idx = min(max(ip.item, 0), sec.items.count)
+            sec.items.insert(item, at: idx)
+            sec.count = sec.items.count
+            sections[ip.section] = sec
+        }
+
+        /// Write the current in-memory arrangement into SwiftData and save.
+        /// One record stays the single source of truth (list + position).
+        private func persistOrder() {
+            let context = parent.modelContext
+            let allLists = (try? context.fetch(FetchDescriptor<TodoList>())) ?? []
+            let byID = Dictionary(uniqueKeysWithValues: allLists.map { ($0.id, $0) })
+            for sec in sections {
+                let list: TodoList? = sec.listID.flatMap { byID[$0] }
+                for (idx, item) in sec.items.enumerated() {
+                    item.list = list
+                    item.position = idx
+                }
+            }
+            try? context.save()
         }
     }
 }
