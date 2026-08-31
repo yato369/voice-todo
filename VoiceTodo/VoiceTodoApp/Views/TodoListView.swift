@@ -217,29 +217,42 @@ struct TodoListView: View {
             ForEach(groups) { group in
                 Section {
                     ForEach(group.items) { item in
-                        TodoRow(item: item) {
-                            toggle(item)
-                        }
-                        .draggable(item.id.uuidString)
-                        .contextMenu { moveMenu(for: item) }
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) {
-                                deleteOne(item)
-                            } label: {
-                                Label("删除", systemImage: "trash")
-                            }
-                            moveSwipeButton(for: item)
-                        }
+                        row(item)
                     }
                     .onDelete { offsets in delete(at: offsets, in: group) }
                     .onMove { from, to in reorderItems(in: group, from: from, to: to) }
-                    .dropDestination(for: String.self) { payload, _ in
-                        moveDropped(payload, to: group.id)
-                    }
                 } header: {
                     groupHeader(group)
                 }
             }
+        }
+    }
+
+    /// A single to-do row: swipe = delete + move; long-press = context menu;
+    /// drag onto another row = reorder (same list) or change list (cross list).
+    private func row(_ item: TodoItem) -> some View {
+        TodoRow(item: item) {
+            toggle(item)
+        }
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                deleteOne(item)
+            } label: {
+                Label("删除", systemImage: "trash")
+            }
+            moveSwipeButton(for: item)
+        }
+        .contextMenu {
+            Button(role: .destructive) {
+                deleteOne(item)
+            } label: {
+                Label("删除", systemImage: "trash")
+            }
+            moveMenu(for: item)
+        }
+        .draggable(item.id.uuidString)
+        .dropDestination(for: String.self) { payload, _ in
+            dropPayload(payload, onto: item)
         }
     }
 
@@ -340,13 +353,34 @@ struct TodoListView: View {
 
     private func reorderItems(in group: ListGroup, from source: IndexSet, to destination: Int) {
         // The unassigned fallback bucket has no stored list to persist order to.
-        guard group.list != nil, group.list != nil, lists.contains(where: { $0.id == group.id }) else { return }
+        guard group.list != nil, lists.contains(where: { $0.id == group.id }) else { return }
         var arr = group.items
         arr.move(fromOffsets: source, toOffset: destination)
         for (index, item) in arr.enumerated() {
             item.position = index
         }
         try? storage.save()
+    }
+
+    /// Drag & drop onto a row: reorder within the same list, or move the
+    /// dragged item into the target row's list at that position.
+    @discardableResult
+    private func dropPayload(_ payload: [String], onto target: TodoItem) -> Bool {
+        guard let idString = payload.first,
+              let uuid = UUID(uuidString: idString),
+              let dragged = items.first(where: { $0.id == uuid }),
+              dragged.id != target.id else { return false }
+        let listID = target.list?.id
+        var arr = itemsSorted(forList: listID)
+        arr.removeAll { $0.id == dragged.id }
+        let index = arr.firstIndex { $0.id == target.id } ?? arr.count
+        arr.insert(dragged, at: index)
+        dragged.list = target.list
+        for (position, item) in arr.enumerated() {
+            item.position = position
+        }
+        try? storage.save()
+        return true
     }
 
     // MARK: - Moving between lists

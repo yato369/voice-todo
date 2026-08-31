@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import AVFoundation
+import PhotosUI
 
 struct TodoDetailView: View {
     @Environment(\.modelContext) private var modelContext
@@ -11,6 +12,8 @@ struct TodoDetailView: View {
     @State private var audioPlayer: AVAudioPlayer?
     @State private var isPlaying = false
     @State private var newTagName: String = ""
+    @State private var newLink: String = ""
+    @State private var pickerItems: [PhotosPickerItem] = []
 
     private var storage: StorageServiceProtocol { StorageService(context: modelContext) }
 
@@ -43,6 +46,8 @@ struct TodoDetailView: View {
 
             listSection
             tagSection
+            imageSection
+            linkSection
             reminderSection
             deleteSection
         }
@@ -122,6 +127,132 @@ struct TodoDetailView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var imageSection: some View {
+        Section("图片") {
+            if item.imageFileNames.isEmpty {
+                Text("暂无图片")
+                    .foregroundStyle(.secondary)
+            } else {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                    ForEach(item.imageFileNames, id: \.self) { name in
+                        imageThumb(name)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            PhotosPicker(selection: $pickerItems, matching: .images) {
+                Label("添加图片", systemImage: "photo.badge.plus")
+            }
+            .onChange(of: pickerItems) { _, newItems in
+                guard !newItems.isEmpty else { return }
+                let toLoad = newItems
+                pickerItems = []
+                Task { await loadPickedImages(toLoad) }
+            }
+        }
+    }
+
+    private func imageThumb(_ name: String) -> some View {
+        Group {
+            if let image = UIImage(contentsOfFile: ImageStore.url(for: name).path) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(height: 90)
+                    .clipped()
+                    .cornerRadius(8)
+            } else {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(.systemGray5))
+                    .frame(height: 90)
+                    .overlay {
+                        Image(systemName: "photo")
+                            .foregroundStyle(.secondary)
+                    }
+            }
+        }
+        .contextMenu {
+            Button(role: .destructive) {
+                deleteImage(name)
+            } label: {
+                Label("删除图片", systemImage: "trash")
+            }
+        }
+    }
+
+    private func loadPickedImages(_ picked: [PhotosPickerItem]) async {
+        for pickerItem in picked {
+            if let data = try? await pickerItem.loadTransferable(type: Data.self),
+               let name = ImageStore.save(data) {
+                item.imageFileNames.append(name)
+            }
+        }
+        try? storage.save()
+    }
+
+    private func deleteImage(_ name: String) {
+        ImageStore.delete(name)
+        item.imageFileNames.removeAll { $0 == name }
+        try? storage.save()
+    }
+
+    @ViewBuilder
+    private var linkSection: some View {
+        Section("链接") {
+            if item.links.isEmpty {
+                Text("暂无链接")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(item.links, id: \.self) { link in
+                    if let url = URL(string: link) {
+                        Link(destination: url) {
+                            Label(linkLabel(link), systemImage: "link")
+                                .lineLimit(1)
+                        }
+                    } else {
+                        Text(link)
+                            .font(.subheadline)
+                    }
+                }
+                .onDelete { offsets in
+                    item.links.remove(atOffsets: offsets)
+                    try? storage.save()
+                }
+            }
+            HStack {
+                TextField("添加链接（如 example.com）", text: $newLink)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("添加") { addLink() }
+                    .disabled(newLink.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+    }
+
+    /// Short display label for a URL: host + trimmed path.
+    private func linkLabel(_ link: String) -> String {
+        if let url = URL(string: link) {
+            let host = url.host() ?? link
+            let path = url.path()
+            return path.isEmpty ? host : host + path
+        }
+        return link
+    }
+
+    private func addLink() {
+        var link = newLink.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !link.isEmpty else { return }
+        if !link.hasPrefix("http://") && !link.hasPrefix("https://") {
+            link = "https://" + link
+        }
+        guard URL(string: link) != nil else { return }
+        item.links.append(link)
+        newLink = ""
+        try? storage.save()
     }
 
     @ViewBuilder

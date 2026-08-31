@@ -201,6 +201,8 @@ const card=h=>`<div class="card">${h}</div>`;
 function itemHTML(i){
   const bell=i.bell?`<span class="bell">🔔 ${i.bell}</span>`:'';
   const chips=(i.tags||[]).map(t=>`<span class="chip">#${esc(t)}</span>`).join('');
+  const imgChip=i.imgs&&i.imgs.length?`<span class="chip">🖼 ${i.imgs.length}</span>`:'';
+  const linkChip=i.links&&i.links.length?`<span class="chip">🔗 ${i.links.length}</span>`:'';
   const when=new Date(i.ts).toLocaleString('zh-Hans',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
   return `
   <div class="item ${i.done?'done':''}"
@@ -211,9 +213,9 @@ function itemHTML(i){
     <div class="circle ${i.done?'done':''}" onclick="toggleItem('${i.id}')">${i.done?'✓':''}</div>
     <span class="col">
       <span class="txt">${esc(i.text)}</span>
-      <span class="meta">${when}${i.list?'':' · 未分类'}${bell}${chips}</span>
+      <span class="meta">${when}${i.list?'':' · 未分类'}${bell}${chips}${imgChip}${linkChip}</span>
     </span>
-    <span class="more" onclick="moveMenu('${i.id}')">⋯</span>
+    <span class="more" onclick="moreMenu('${i.id}')">⋯</span>
     <button class="del" onclick="deleteItem('${i.id}')">✕</button>
   </div>`;
 }
@@ -280,18 +282,105 @@ function addItem(kind){
 }
 function pushItem(text){
   const d=defList();
-  db.items.push({id:uuid(),text,list:d.id,tags:[],bell:null,ts:Date.now(),done:false});
+  db.items.push({id:uuid(),text,list:d.id,tags:[],links:[],imgs:[],bell:null,ts:Date.now(),done:false});
   save(); render(); toast('已加入「'+d.name+'」');
 }
 
 function moveMenu(id){
   movePending=id;
-  const dim=dimMap();
   const rows=treeLists().map(([l,d])=>{
     const cur=(db.items.find(x=>x.id===id)||{}).list===l.id;
     return listRow({name:'··'.repeat(d)+l.name,color:l.color,icon:l.icon},cur?'sel':'',()=>moveItem(id,l.id,false),cur?'✓':'');
   }).join('');
   modal(`<h3 style="text-align:center">移动到列表</h3>${rows}`);
+}
+
+// ⋯ 操作菜单：移动 / 详情
+function moreMenu(id){
+  modal(`<h3 style="text-align:center">操作</h3>
+    <div class="sheetrow" style="cursor:pointer" onclick="moveMenu('${id}')">
+      <span class="ico" style="background:#039BE5">➡️</span><span class="nm">移动到列表…</span></div>
+    <div class="sheetrow" style="cursor:pointer" onclick="openDetail('${id}')">
+      <span class="ico" style="background:#5E35B1">📝</span><span class="nm">详情（标签 / 图片 / 链接）</span></div>
+    <div class="sheetrow" style="cursor:pointer" onclick="deleteItem('${id}');close()">
+      <span class="ico" style="background:#ff3b30">🗑</span><span class="nm">删除待办</span></div>`);
+}
+
+// 详情弹层：编辑内容、勾选标签、添加图片（本地读取）与链接
+function openDetail(id){
+  const it=db.items.find(x=>x.id===id); if(!it)return;
+  it.tags=it.tags||[]; it.links=it.links||[]; it.imgs=it.imgs||[];
+  const tagRows=(db.tags||[]).map(t=>{
+    const on=it.tags.includes(t);
+    return `<div class="sheetrow" style="cursor:pointer" onclick="toggleItemTag('${id}','${esc(t)}')">
+      <span class="ico" style="background:#0a84ff">#</span><span class="nm">${esc(t)}</span><span>${on?'✓':''}</span></div>`;
+  }).join('');
+  const linkRows=it.links.map((l,idx)=>`
+    <div class="sheetrow">
+      <span class="ico" style="background:#5E35B1">🔗</span>
+      <span class="nm" style="font-size:14px;word-break:break-all">
+        <a href="${esc(l)}" target="_blank" style="color:var(--accent);text-decoration:none">${esc(l)}</a></span>
+      <button class="iconbtn" style="color:var(--red)" onclick="delLink('${id}',${idx})">✕</button>
+    </div>`).join('');
+  const imgThumbs=it.imgs.map((d,idx)=>`
+    <div style="position:relative;width:88px;height:88px;margin:4px">
+      <img src="${d}" style="width:100%;height:100%;object-fit:cover;border-radius:8px">
+      <button class="iconbtn" style="position:absolute;top:-6px;right:-6px;background:#fff;border-radius:50%;color:var(--red);box-shadow:0 1px 4px rgba(0,0,0,.3);padding:2px 6px" onclick="delImg('${id}',${idx})">✕</button>
+    </div>`).join('');
+  modal(`<h3>待办详情</h3>
+    <div class="field"><label>内容</label><input type="text" id="dtext" value="${esc(it.text)}"></div>
+    <div class="field"><label>标签（点击勾选）</label>
+      ${tagRows||'<div class="empty">还没有标签</div>'}
+      <div class="sheetrow" style="border-bottom:none;padding:6px 0 0">
+        <span class="nm"><input type="text" id="dntag" placeholder="新标签" style="padding:8px 10px"></span>
+        <button class="iconbtn" onclick="addTagFromDetail('${id}')">＋ 添加</button>
+      </div></div>
+    <div class="field"><label>图片</label>
+      <div style="display:flex;flex-wrap:wrap">${imgThumbs}</div>
+      <label class="btn" style="display:block;text-align:center;background:#f2f2f7;color:var(--accent)">📷 选择图片
+        <input type="file" accept="image/*" multiple style="display:none" onchange="addImgs('${id}',this)"></label></div>
+    <div class="field"><label>链接</label>
+      ${linkRows}
+      <div class="sheetrow" style="border-bottom:none;padding:6px 0 0">
+        <span class="nm"><input type="text" id="dlink" placeholder="https://…" style="padding:8px 10px"></span>
+        <button class="iconbtn" onclick="addLinkFromDetail('${id}')">＋ 添加</button>
+      </div></div>
+    <div class="btnrow"><button class="btn primary" onclick="saveDetail('${id}')">保存</button></div>`);
+}
+function toggleItemTag(id,t){
+  const it=db.items.find(x=>x.id===id); if(!it)return;
+  it.tags=it.tags||[];
+  const i=it.tags.indexOf(t); i>=0?it.tags.splice(i,1):it.tags.push(t);
+  save(); openDetail(id); render();
+}
+function addTagFromDetail(id){
+  const v=(document.getElementById('dntag').value||'').trim(); if(!v)return;
+  db.tags=db.tags||[]; if(!db.tags.includes(v))db.tags.push(v);
+  const it=db.items.find(x=>x.id===id); it.tags=it.tags||[];
+  if(!it.tags.includes(v))it.tags.push(v);
+  save(); openDetail(id); render();
+}
+function addLinkFromDetail(id){
+  let v=(document.getElementById('dlink').value||'').trim(); if(!v)return;
+  if(!/^https?:\/\//.test(v))v='https://'+v;
+  const it=db.items.find(x=>x.id===id); it.links=it.links||[];
+  it.links.push(v); save(); openDetail(id); render();
+}
+function delLink(id,idx){const it=db.items.find(x=>x.id===id); it.links.splice(idx,1); save(); openDetail(id); render();}
+function delImg(id,idx){const it=db.items.find(x=>x.id===id); it.imgs.splice(idx,1); save(); openDetail(id); render();}
+function addImgs(id,input){
+  const it=db.items.find(x=>x.id===id); it.imgs=it.imgs||[];
+  [...input.files].forEach(f=>{
+    const r=new FileReader();
+    r.onload=()=>{ it.imgs.push(r.result); save(); openDetail(id); render(); };
+    r.readAsDataURL(f);
+  });
+}
+function saveDetail(id){
+  const it=db.items.find(x=>x.id===id);
+  const t=(document.getElementById('dtext').value||'').trim();
+  if(t)it.text=t;
+  save(); close(); render(); toast('已保存');
 }
 
 // ================= 列表管理 =================

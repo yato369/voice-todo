@@ -21,6 +21,12 @@ final class TodoItem {
     /// Cross-cutting labels (优先级 / 来源, …). Many-to-many.
     @Relationship(inverse: \Tag.items) var tags: [Tag] = []
 
+    /// Attached photos, stored as file names under Documents/Attachments.
+    var imageFileNames: [String] = []
+
+    /// Attached hyperlinks (full https URLs).
+    var links: [String] = []
+
     init(
         text: String,
         audioFileName: String? = nil,

@@ -41,6 +41,16 @@ struct TodoRow: View {
                             .font(.caption2)
                             .foregroundStyle(.orange)
                     }
+                    if !item.imageFileNames.isEmpty {
+                        Label("\(item.imageFileNames.count)", systemImage: "photo.on.rectangle")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    if !item.links.isEmpty {
+                        Label("\(item.links.count)", systemImage: "link")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
