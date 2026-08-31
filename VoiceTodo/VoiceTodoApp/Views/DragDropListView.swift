@@ -240,7 +240,7 @@ struct DragDropListView: UIViewRepresentable {
         }
 
         /// Flattened list names for the "move to..." swipe action.
-        private func listChoices() -> [(UUID, String, Int)] {
+        private func listChoices() -> [(UUID, Int, String)] {
             let context = parent.modelContext
             let lists = (try? context.fetch(FetchDescriptor<TodoList>(
                 sortBy: [SortDescriptor(\.position)]
