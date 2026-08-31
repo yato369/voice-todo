@@ -12,6 +12,9 @@ final class TodoItem {
     var completedAt: Date?
     var reminderDate: Date?
 
+    /// The category list this to-do belongs to (nil pending default backfill).
+    var list: TodoList?
+
     init(
         text: String,
         audioFileName: String? = nil,

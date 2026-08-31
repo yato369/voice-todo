@@ -14,3 +14,8 @@ xcuserdata/
 
 # Misc
 *.ipa
+
+# Local tooling / artifacts (do not upload)
+.trae/
+prototype/
+*.exe

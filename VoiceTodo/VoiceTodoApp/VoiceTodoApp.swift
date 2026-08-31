@@ -7,7 +7,7 @@ struct VoiceTodoApp: App {
 
     init() {
         do {
-            container = try ModelContainer(for: TodoItem.self)
+            container = try ModelContainer(for: TodoItem.self, TodoList.self)
         } catch {
             fatalError("Failed to create model container: \(error)")
         }

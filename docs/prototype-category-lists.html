@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>VoiceTodo · 分类列表原型</title>
+<style>
+  :root{
+    --bg:#f2f2f7; --card:#ffffff; --sep:rgba(60,60,67,.12);
+    --text:#1c1c1e; --sub:#8e8e93; --accent:#0a84ff; --green:#30d158; --red:#ff3b30;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  body{margin:0; font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif;
+    background:var(--bg); color:var(--text); padding-bottom:100px;}
+  .navbar{position:sticky; top:0; z-index:20; background:rgba(242,242,247,.9); backdrop-filter:blur(14px);}
+  .navrow{display:flex; align-items:center; justify-content:space-between; padding:8px 16px;}
+  .ntitle{font-size:17px; font-weight:700;}
+  .iconbtn{font-size:15px; background:none; border:none; color:var(--accent); padding:6px 4px; cursor:pointer;}
+  .mini{display:flex; gap:6px; align-items:center;}
+  .seg{display:flex; background:#e9e9eb; border-radius:9px; padding:2px; margin:4px 16px 8px;}
+  .seg button{flex:1; border:none; background:transparent; padding:6px 0; border-radius:7px;
+    font-size:13px; color:#666; cursor:pointer; font-family:inherit;}
+  .seg button.active{background:#fff; color:#000; font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.15);}
+  main{max-width:620px; margin:0 auto; padding:0 12px;}
+  .card{background:var(--card); border-radius:12px; margin:10px 0; overflow:hidden;}
+  .sec-head{display:flex; align-items:center; gap:8px; padding:12px 16px 6px; font-size:15px; font-weight:650;}
+  .sec-head .dot{width:10px; height:10px; border-radius:3px;}
+  .sec-head .count{margin-left:auto; font-size:12px; color:var(--sub); font-weight:400;}
+  .item{display:flex; align-items:flex-start; gap:10px; padding:11px 16px; transition:background .15s;}
+  .item+.item{border-top:1px solid var(--sep);}
+  .item.hl{background:#eef6ff;}
+  .circle{width:26px; height:26px; flex:0 0 26px; border-radius:50%; border:1.5px solid var(--sub);
+    display:flex; align-items:center; justify-content:center; margin-top:2px; cursor:pointer;}
+  .circle.done{background:var(--green); border-color:var(--green);}
+  .item.done .txt{color:var(--sub); text-decoration:line-through;}
+  .col{flex:1; min-width:0;}
+  .txt{font-size:16px; line-height:1.35; word-break:break-word;}
+  .meta{display:flex; gap:8px; font-size:12px; color:var(--sub); margin-top:3px;}
+  .bell{color:var(--accent);}
+  .more{color:var(--sub); cursor:pointer; padding:4px;}
+  .del{color:var(--red); cursor:pointer; padding:4px; display:none;}
+  body.editing .del{display:block;}
+  .empty{padding:30px 16px; text-align:center; color:var(--sub); font-size:14px;}
+  .fabwrap{position:fixed; right:18px; bottom:24px; display:flex; flex-direction:column; gap:12px; z-index:15;}
+  .fab{width:56px; height:56px; border-radius:28px; border:none; color:#fff; font-size:26px;
+    display:flex; align-items:center; justify-content:center; box-shadow:0 4px 12px rgba(0,0,0,.25); cursor:pointer; background:var(--accent);}
+  .fab.red{background:var(--red); margin-top:-6px;}
+  .mask{position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:30; display:flex;
+    align-items:flex-end; justify-content:center;}
+  .sheet{background:#fff; border-radius:18px 18px 0 0; width:100%; max-width:620px;
+    max-height:82vh; overflow:auto; padding:12px 16px 26px; animation:up .2s;}
+  @keyframes up{from{transform:translateY(40px); opacity:0} to{transform:none; opacity:1}}
+  .sheet h3{margin:6px 0 12px; font-size:17px; font-weight:700;}
+  .sheetrow{display:flex; align-items:center; gap:12px; padding:12px 8px; border-bottom:1px solid var(--sep);}
+  .ico{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px;}
+  .nm{flex:1; font-size:16px;}
+  .grip{color:#c7c7cc; font-size:18px; cursor:grab;}
+  .tag{font-size:11px; color:var(--accent); font-weight:600;}
+  .sheetrow button{margin-left:6px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block; font-size:12px; color:var(--sub); margin:0 0 6px 2px;}
+  input[type=text]{width:100%; padding:11px 12px; font-size:16px; border:1px solid #d1d1d6;
+    border-radius:10px; font-family:inherit; background:#fff;}
+  .swatches{display:flex; gap:10px; flex-wrap:wrap;}
+  .swatch{width:34px;height:34px;border-radius:50%; cursor:pointer; display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;border:2px solid transparent;}
+  .swatch.sel{border-color:#000;}
+  .icons{display:flex; gap:10px; flex-wrap:wrap;}
+  .ic{width:40px;height:40px;border-radius:9px;background:#f2f2f7;display:flex;align-items:center;justify-content:center;font-size:19px;cursor:pointer;border:2px solid transparent;}
+  .ic.sel{border-color:var(--accent);}
+  .btnrow{display:flex; gap:10px; margin-top:16px;}
+  .btn{padding:12px; border:none; border-radius:11px; font-size:15px; cursor:pointer; font-family:inherit;}
+  .btn.primary{background:var(--accent); color:#fff; flex:1;}
+  .btn.danger{color:var(--red); background:#ffeeef; display:none;}
+  body.editman .btn.danger{display:block;}
+  .toast{position:fixed; left:50%; bottom:112px; transform:translateX(-50%);
+    background:rgba(0,0,0,.85); color:#fff; padding:10px 18px; border-radius:20px;
+    font-size:14px; z-index:50; opacity:0; transition:.25s; pointer-events:none; white-space:nowrap;}
+  .toast.show{opacity:1;}
+  .swatch-row{display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;}
+</style>
+</head>
+<body>
+  <div class="navbar">
+    <div class="navrow">
+      <button class="iconbtn" onclick="openManage()">📁 管理</button>
+      <span class="ntitle">待办</span>
+      <div class="mini">
+        <button class="iconbtn" id="filterBtn" style="color:var(--sub)" onclick="openFilter()">⛃</button>
+        <button class="iconbtn" onclick="toggleEdit()">✎</button>
+      </div>
+    </div>
+    <div class="seg">
+      <button data-mode="grouped" onclick="setMode('grouped')">分组</button>
+      <button data-mode="flat" onclick="setMode('flat')">全部</button>
+    </div>
+  </div>
+
+  <main id="content"></main>
+
+  <div class="fabwrap">
+    <button class="fab" title="文字新增" onclick="addItem('text')">＋</button>
+    <button class="fab red" title="语音新增" onclick="addItem('voice')">🎤</button>
+  </div>
+
+  <div id="modal"></div>
+  <div id="toast" class="toast"></div>
+
+<script>
+// ================= 数据 =================
+const STORE="vt_proto_lists_v1";
+const pal=["#E53935","#FB8C00","#FDD835","#43A047","#039BE5","#5E35B1","#8E24AA","#6D4C41"];
+const icons={"tray.fill":"📥","checklist":"☑️","book":"📚","briefcase":"💼","cart":"🛒","house":"🏠","bolt":"⚡","calendar":"📅","star":"⭐"};
+let mode='grouped', editing=false, filterListID=null, manageEdit=false;
+
+function seed(){
+  let s=localStorage.getItem(STORE);
+  if(s)return JSON.parse(s);
+  const d={lists:[],items:[]};
+  d.lists=[{id:'inbox',name:'收件箱',color:'#039BE5',icon:'tray.fill',pos:0,def:true}];
+  const now=Date.now();
+  const I=(t,list,bell,ts=now,done=false)=>({id:uuid(),text:t,list,bell,ts,done});
+  d.items=[
+    I('复习英语单词','inbox',null,now+0),
+    I('去拿快递','inbox',null,now-1e5),
+    I('看完 PDF 第三章','inbox',null,now-2e5,true),
+  ];
+  localStorage.setItem(STORE,JSON.stringify(d));
+  return d;
+}
+let db=seed();
+function save(){localStorage.setItem(STORE,JSON.stringify(db));}
+function uuid(){return 'x'+Math.random().toString(36).slice(2,10);}
+
+// ================= 派生 =================
+const listsSorted=()=>db.lists.slice().sort((a,b)=>a.pos-b.pos);
+const itemSort=(a,b)=>(a.done-b.done)||(b.ts-a.ts);
+const dimMap=()=>{const m={};listsSorted().forEach(l=>m[l.id]=l);return m;};
+const defList=()=>db.lists.find(l=>l.def)||db.lists[0];
+
+// ================= 渲染主列表 =================
+function render(){
+  document.querySelectorAll('.seg button').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));
+  document.body.classList.toggle('editing',editing);
+  document.getElementById('filterBtn').style.color=filterListID?'var(--accent)':'var(--sub)';
+  const c=document.getElementById('content');
+  let html='';
+
+  if(mode==='grouped'){
+    let groups=listsSorted().map(l=>({l,items:db.items.filter(i=>i.list===l.id)}));
+    const un=db.items.filter(i=>!i.list);
+    if(un.length)groups.push({l:{id:'__none__',name:'未分类',color:'#8e8e93',icon:'checklist'},items:un});
+    groups=groups.filter(g=>g.items.length>0);
+    html=groups.map(g=>section(g.l,g.items)).join('');
+    if(!html)html=card(empty('还没有待办<br>点右下角按钮，语音或文字输入创建待办'));
+  }else{
+    let arr=db.items.slice();
+    const dim=dimMap();
+    if(filterListID)arr=arr.filter(i=>i.list===filterListID);
+    arr.sort(itemSort);
+    const g={id:'all',name:filterListID?(dim[filterListID]?dim[filterListID].name:'筛选'):'全部',
+      color:filterListID?(dim[filterListID]?dim[filterListID].color:'#8e8e93'):'#8e8e93'};
+    html=section(g,arr);
+    if(!arr.length)html=card(empty(arr.length===0?'该列表暂无待办':'还没有待办'));
+  }
+  c.innerHTML=html;
+}
+
+const empty=t=>`<div class="empty">${t}</div>`;
+const card=h=>`<div class="card">${h}</div>`;
+
+function section(g,arr){
+  const head=`<div class="sec-head"><span class="dot" style="background:${g.color}"></span>&nbsp;${icons[g.icon]||'☑️'}&nbsp;${g.name}<span class="count">${arr.length}</span></div>`;
+  const rows=arr.map(i=>itemHTML(i)).join('');
+  return `<div class="card" data-secid="${g.id}">${head}${rows}</div>`;
+}
+
+function itemHTML(i){
+  const bell=i.bell?`<span class="bell">🔔 ${i.bell}</span>`:'';
+  const when=new Date(i.ts).toLocaleString('zh-Hans',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+  return `
+  <div class="item ${i.done?'done':''}"
+       data-id="${i.id}"
+       draggable="true"
+       ondragstart="dragStart(event,'${i.id}')"
+       ondragend="dragEnd(event)">
+    <div class="circle ${i.done?'done':''}" onclick="toggleItem('${i.id}')">${i.done?'✓':''}</div>
+    <span class="col">
+      <span class="txt">${esc(i.text)}</span>
+      <span class="meta">${when}${i.list?'':' · 未分类'}${bell}</span>
+    </span>
+    <span class="more" onclick="moveMenu('${i.id}')">⋯</span>
+    <button class="del" onclick="deleteItem('${i.id}')">✕</button>
+  </div>`;
+}
+
+// 拖动到小节标题区域切换列表
+function dragStart(e,id){e.dataTransfer.setData('text/plain',id);}
+function dragEnd(){ e_clearHL(); }
+function e_clearHL(){document.querySelectorAll('.sec-head').forEach(h=>h.style.background='');}
+document.addEventListener('dragenter',e=>{
+  const h=e.target.closest && e.target.closest('.sec-head');
+  e_clearHL(); if(h)h.style.background='#eef6ff';
+});
+document.addEventListener('drop',e=>{
+  e.preventDefault(); e_clearHL();
+  const id=e.dataTransfer.getData('text/plain'); if(!id)return;
+  const card=(e.target.closest && e.target.closest('[data-secid]')) || null;
+  if(card) moveItem(id, card.getAttribute('data-secid'), true);
+});
+document.addEventListener('dragover',e=>{ if(e.target.closest && e.target.closest('.card')) e.preventDefault(); });
+
+// ================= 操作 =================
+function toggleItem(id){
+  const i=db.items.find(x=>x.id===id); if(!i)return; i.done=!i.done; save(); render();
+}
+function deleteItem(id){
+  db.items=db.items.filter(x=>x.id!==id); save(); render(); toast('已删除');
+}
+function moveItem(id,listId,silent){
+  const i=db.items.find(x=>x.id===id); if(!i)return;
+  if(listId==='__none__')return toast('未分类为临时视图，无法移入');
+  const dim=dimMap(); const L=dim[listId]; if(!i||!L)return;
+  if(i.list===listId)return;
+  i.list=listId; save(); render();
+  if(!silent)toast('已移动到「'+L.name+'」');
+}
+function setMode(m){mode=m;render();}
+function openFilter(){
+  const dim=dimMap();
+  modal(`<h3 style="text-align:center">筛选列表</h3>
+    ${listRow({name:'全部列表',color:'#8e8e93',icon:'checklist'},filterListID===null?'sel':'', ()=>{filterListID=null;close();render();})}
+    ${listsSorted().map(l=>listRow(l,filterListID===l.id?'sel':'',()=>{filterListID=l.id;close();render();})).join('')}`);
+}
+function toggleEdit(){editing=!editing;render();}
+
+function addItem(kind){
+  if(kind==='voice'){
+    pushItem('（语音待办：刚才说的一段话）');
+    toast('（原型演示）语音转写从简');
+    return;
+  }
+  const txt=prompt('新的待办内容：');
+  if(txt==null || !txt.trim()) return;
+  pushItem(txt.trim());
+}
+function pushItem(text){
+  const d=defList();
+  db.items.push({id:uuid(),text,list:d.id,bell:null,ts:Date.now(),done:false});
+  save(); render(); toast('已加入「'+d.name+'」');
+}
+
+function moveMenu(id){
+  const dim=dimMap();
+  const rows=listsSorted().map(l=>{
+    const cur=(db.items.find(x=>x.id===id)||{}).list===l.id;
+    return listRow(l,cur?'sel':'',()=>moveItem(id,l.id,false),cur?'✓':'');
+  }).join('');
+  modal(`<h3 style="text-align:center">移动到列表</h3>${rows}`);
+  movePending=id;
+}
+let movePending=null;
+
+// ================= 列表管理 =================
+function openManage(){
+  manageEdit=false; document.body.classList.remove('editman');
+  modalRows();
+  bindReSort();
+}
+
+function modalRows(){
+  const rows=listsSorted().map(l=>`
+    <div class="sheetrow" data-lid="${l.id}" draggable="true" ondragstart="mDrag(event,'${l.id}')" ondragover="event.preventDefault()" ondrop="mDrop(event)">
+      <span class="grip">⠿</span>
+      <span class="ico" style="background:${l.color}">${icons[l.icon]||'☑️'}</span>
+      <span class="nm">${esc(l.name)}${l.def?' <span class="tag">默认</span>':''}</span>
+      <button class="iconbtn" style="color:var(--accent)" onclick="editList('${l.id}')">编辑</button>
+      ${l.def?'':`<button class="iconbtn" style="color:var(--sub)" onclick="mkDef('${l.id}')">设默认</button>`}
+      <button class="iconbtn" style="color:var(--red)" onclick="delList('${l.id}')">删除</button>
+    </div>`).join('');
+  modal(`<div style="display:flex;justify-content:space-between;align-items:center">
+      <h3 style="margin:0">管理列表</h3>
+      <button class="btn" style="color:var(--accent);background:none;padding:6px" onclick="openNew()">＋ 新建</button>
+    </div>
+    ${rows||`<div class="empty">还没有列表</div>`}
+    <div class="btnrow"><button class="btn primary" onclick="close()">完成</button></div>
+    <div style="font-size:12px;color:var(--sub);margin-top:10px">拖住 ⠿ 可排序 · 删除列表会把其待办移回默认列表</div>`);
+}
+let mFrom=null;
+function mDrag(e,id){mFrom=id;e.dataTransfer.setData('text/plain',id);}
+function mDrop(e){
+  e.preventDefault(); if(!mFrom)return;
+  const to=e.target.closest('[data-lid]'); if(!to)return;
+  const toId=to.getAttribute('data-lid');
+  if(mFrom===toId)return;
+  const arr=listsSorted(); const f=arr.findIndex(x=>x.id===mFrom), t=arr.findIndex(x=>x.id===toId);
+  arr.splice(t,0,arr.splice(f,1)[0]);
+  arr.forEach((l,i)=>l.pos=i); save(); modalRows(); bindReSort(); toast('已排序');
+}
+function bindReSort(){ /* rows draggable already */ }
+
+function mkDef(id){db.lists.forEach(l=>l.def=(l.id===id));save();modalRows();toast('新的默认列表已设置');}
+function delList(id){
+  const l=db.lists.find(x=>x.id===id); if(!l)return;
+  if(l.def)return toast('默认「收件箱」不可删除');
+  if(!confirm('删除「'+l.name+'」？其待办将移回默认列表。'))return;
+  const d=defList();
+  db.items.forEach(i=>{if(i.list===id)i.list=d.id;});
+  db.lists=db.lists.filter(x=>x.id!==id); save(); modalRows(); toast('已删除');
+}
+function editList(id){ openForm(db.lists.find(x=>x.id===id)); }
+function openNew(){ openForm(null); }
+
+function openForm(list){
+  const isNew=!list;
+  const c=(list&&list.color)||pal[0], ic=(list&&list.icon)||'checklist', nm=(list&&list.name)||'';
+  modal(`
+    <h3>${isNew?'新建列表':'编辑列表'}</h3>
+    <div class="field"><label>名称</label><input type="text" id="fn" value="${esc(nm)}" placeholder="如：学习 / 生活杂事 / 长期计划"></div>
+    <div class="field"><label>颜色</label>
+      <div class="swatches" id="fcolor">${pal.map(h=>`<span class="swatch ${h===c?'sel':''}" data-h="${h}" style="background:${h}">${h===c?'✓':''}</span>`).join('')}</div>
+    </div>
+    <div class="field"><label>图标</label>
+      <div class="icons" id="ficon">${Object.entries(icons).map(([k,v])=>`<span class="ic ${k===ic?'sel':''}" data-i="${k}">${v}</span>`).join('')}</div>
+    </div>
+    <div class="btnrow">
+      <button class="btn primary" onclick="saveForm(${isNew?'null':`'${list.id}'`})">保存</button>
+      <button class="btn danger" style="display:${isNew?'none':'block'}" onclick="delListFromForm('${list.id}')">删除列表</button>
+    </div>`);
+  selState('fcolor','data-h'); selState('ficon','data-i');
+}
+function selState(containerId, attr){
+  document.getElementById(containerId).addEventListener('click',e=>{
+    const el=e.target.closest('[data-h],[data-i]'); if(!el)return;
+    el.parentElement.querySelectorAll(`[${attr}]`).forEach(s=>s.classList.remove('sel'));
+    el.classList.add('sel');
+  });
+}
+function saveForm(id){
+  const f=document.getElementById('fn');
+  const name=(f.value||'').trim(); if(!name)return toast('请输入名称');
+  const color=(document.querySelector('#fcolor .swatch.sel')||{}).dataset?document.querySelector('#fcolor .swatch.sel').dataset.h:pal[0];
+  const iconEl=document.querySelector('#ficon .ic.sel');
+  const icon=iconEl?iconEl.dataset.i:'checklist';
+  if(id){
+    const l=db.lists.find(x=>x.id===id); if(l){l.name=name;l.color=color;l.icon=icon;}
+  }else{
+    db.lists.push({id:uuid(),name,color,icon,pos:db.lists.length,def:db.lists.length===0});
+  }
+  save(); close(); openManage(); toast(id?'已保存':'已创建');
+}
+function delListFromForm(id){ close(); delList(id); }
+
+// ================= 通用 =================
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function listRow(l,cls,onclick,check=''){
+  return `<div class="sheetrow" style="cursor:pointer" onclick="(${onclick.toString()})()">
+    <span class="ico" style="background:${l.color}">${icons[l.icon]||'☑️'}</span>
+    <span class="nm">${esc(l.name)}</span><span>${check}</span></div>`;
+}
+function modal(inner){
+  document.getElementById('modal').innerHTML=`<div class="mask" onclick="if(event.target===event.currentTarget)close()"><div class="sheet" onclick="event.stopPropagation()">${inner}</div></div>`;
+}
+function close(){document.getElementById('modal').innerHTML='';}
+let tTimer;
+function toast(msg){
+  const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(tTimer); tTimer=setTimeout(()=>t.classList.remove('show'),1600);
+}
+
+// ================= 初始化 =================
+render();
+</script>
+</body>
+</html>

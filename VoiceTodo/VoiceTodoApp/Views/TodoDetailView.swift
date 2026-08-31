@@ -4,6 +4,7 @@ import AVFoundation
 
 struct TodoDetailView: View {
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \TodoList.position) private var lists: [TodoList]
     @Bindable var item: TodoItem
 
     @State private var audioPlayer: AVAudioPlayer?
@@ -30,6 +31,26 @@ struct TodoDetailView: View {
                             isPlaying ? "停止播放" : "播放录音",
                             systemImage: isPlaying ? "stop.fill" : "play.fill"
                         )
+                    }
+                }
+            }
+
+            Section("列表") {
+                if lists.isEmpty {
+                    Text("未创建列表")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Picker("归属列表", selection: Binding(
+                        get: { item.list?.id ?? lists.first?.id },
+                        set: { id in
+                            item.list = lists.first { $0.id == id }
+                            try? storage.save()
+                        }
+                    )) {
+                        ForEach(lists) { list in
+                            Label(list.name, systemImage: list.iconName ?? "checklist")
+                                .tag(Optional(list.id))
+                        }
                     }
                 }
             }

@@ -6,6 +6,8 @@ struct RecordView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
+    @Query(sort: \TodoList.position) private var lists: [TodoList]
+
     let mode: InputMode
 
     @StateObject private var recorder = AudioRecorder()
@@ -16,6 +18,12 @@ struct RecordView: View {
 
     private let transcriber: SpeechTranscriberProtocol = SpeechTranscriber()
     private var storage: StorageServiceProtocol { StorageService(context: modelContext) }
+
+    /// The list new items land in: default list, or the first list if no
+    /// default exists, or nil (backfilled by the list view) if none at all.
+    private var defaultList: TodoList? {
+        lists.first { $0.isDefault } ?? lists.first
+    }
 
     enum Phase {
         case idle
@@ -205,6 +213,7 @@ struct RecordView: View {
                     text: cleaned.isEmpty ? "（无文字内容）" : cleaned,
                     audioFileName: latestURL.lastPathComponent
                 )
+                item.list = defaultList
                 try storage.insert(item)
                 dismiss()
             } catch {
@@ -219,6 +228,7 @@ struct RecordView: View {
         guard !cleaned.isEmpty else { return }
 
         let item = TodoItem(text: cleaned)
+        item.list = defaultList
         do {
             try storage.insert(item)
             dismiss()
