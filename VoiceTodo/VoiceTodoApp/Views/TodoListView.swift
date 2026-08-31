@@ -233,31 +233,15 @@ struct TodoListView: View {
 
     // MARK: - Grouped list (UIKit drag & drop)
 
-    @MainActor
     private var groupedList: some View {
         DragDropListView(
-            sections: dragSections,
+            modelContext: modelContext,
+            collapsed: collapsedLists,
             onToggle: { toggle($0) },
             onDelete: { deleteOne($0) },
             onCollapse: { toggleCollapse($0) },
             onMove: { moveByDrag($0, toListID: $1, toIndex: $2) }
         )
-    }
-
-    /// Sections consumed by the UIKit collection view (mirror of `groups`).
-    private var dragSections: [DragDropListView.Section] {
-        groups.map { g in
-            DragDropListView.Section(
-                listID: g.list?.id,
-                name: g.title,
-                color: g.color,
-                icon: g.icon,
-                depth: g.depth,
-                count: g.items.count,
-                collapsed: collapsedLists.contains(g.id),
-                items: g.items
-            )
-        }
     }
 
     private func toggleCollapse(_ id: UUID) {
