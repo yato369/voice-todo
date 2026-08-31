@@ -212,7 +212,7 @@ function itemHTML(i,d=0){
   const when=new Date(i.ts).toLocaleString('zh-Hans',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
   const indent=d>0?`style="padding-left:${d*16}px"`:'';
   const minus=editing?`<span class="minus" onclick="event.stopPropagation();deleteItem('${i.id}')" title="删除">⊖</span>`:'';
-  const grip=editing?`<span class="grip" title="按住拖动排序/换列表">≡</span>`:'';
+  const grip=editing?`<span class="grip" title="长按拖动排序/换列表">≡</span>`:'';
   const dragAttr=editing?'draggable="true"':'';
   return `
   <div class="item ${i.done?'done':''}"
@@ -222,12 +222,12 @@ function itemHTML(i,d=0){
        ondragend="dragEnd(event)"
        ${indent}>
     ${minus}
-    ${grip}
     <div class="circle ${i.done?'done':''}" onclick="toggleItem('${i.id}')">${i.done?'✓':''}</div>
     <span class="col">
       <span class="txt">${esc(i.text)}</span>
       <span class="meta">${when}${i.list?'':' · 未分类'}${bell}${chips}${imgChip}${linkChip}</span>
     </span>
+    ${grip}
     <span class="more" onclick="moreMenu('${i.id}')">⋯</span>
     <button class="del" onclick="deleteItem('${i.id}')">✕</button>
   </div>`;

@@ -3,6 +3,11 @@ import SwiftData
 import UniformTypeIdentifiers
 
 // MARK: - Drag & drop delegates (onDrag + onDrop, reliable inside List)
+//
+// NOTE on UTType matching: NSItemProvider(object: NSString) registers
+// "public.utf8-plain-text", NOT "public.plain-text". Matching plainText
+// alone silently rejects every drop. We therefore accept both types and
+// validate unconditionally.
 
 /// Drop target = a to-do row. Dropping here reorders within the list or
 /// moves the dragged item into the target row's list at that position.
@@ -10,19 +15,15 @@ private struct TodoRowDropDelegate: DropDelegate {
     let target: TodoItem
     let perform: (_ draggedID: UUID, _ target: TodoItem) -> Void
 
-    func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [UTType.plainText])
-    }
+    func validateDrop(info: DropInfo) -> Bool { true }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         DropProposal(operation: .move)
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        guard let provider = info.itemProviders(for: [UTType.plainText]).first else {
-            return false
-        }
-        provider.loadObject(ofClass: NSString.self) { object, _ in
+        guard let provider = info.itemProviders.first else { return false }
+        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
             guard let string = object as? String,
                   let draggedID = UUID(uuidString: string) else { return }
             DispatchQueue.main.async {
@@ -39,19 +40,15 @@ private struct ListHeaderDropDelegate: DropDelegate {
     let list: TodoList?
     let perform: (_ draggedID: UUID, _ list: TodoList?) -> Void
 
-    func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [UTType.plainText])
-    }
+    func validateDrop(info: DropInfo) -> Bool { true }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         DropProposal(operation: .move)
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        guard let provider = info.itemProviders(for: [UTType.plainText]).first else {
-            return false
-        }
-        provider.loadObject(ofClass: NSString.self) { object, _ in
+        guard let provider = info.itemProviders.first else { return false }
+        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
             guard let string = object as? String,
                   let draggedID = UUID(uuidString: string) else { return }
             DispatchQueue.main.async {
@@ -61,6 +58,9 @@ private struct ListHeaderDropDelegate: DropDelegate {
         return true
     }
 }
+
+/// Type identifiers accepted by our drop targets (see NOTE above).
+private let dropTypes: [UTType] = [.plainText, .utf8PlainText]
 
 struct TodoListView: View {
     @Environment(\.modelContext) private var modelContext
@@ -322,7 +322,7 @@ struct TodoListView: View {
                                 toggleCollapse(group.id)
                             }
                         }
-                        .onDrop(of: [UTType.plainText],
+                        .onDrop(of: dropTypes,
                                 delegate: ListHeaderDropDelegate(list: group.list) { draggedID, list in
                             moveDraggedToList(draggedID, list)
                         })
@@ -339,10 +339,11 @@ struct TodoListView: View {
         }
     }
 
-    /// A single to-do row. In edit mode a drag handle (≡) and a red minus
-    /// (delete) appear at the leading edge; press the handle and drag onto
-    /// any row to reorder or change list, or onto a section header to append
-    /// to that list. Non-edit mode: swipe = delete + move.
+    /// A single to-do row. In edit mode: red minus (delete) on the leading
+    /// edge, a ≡ hint on the trailing edge. The whole row is draggable
+    /// (long-press anywhere, e.g. the ≡): drop on any row to reorder or
+    /// change list, drop on a section header to append to that list.
+    /// Non-edit mode: swipe = delete + move.
     private func row(_ item: TodoItem, depth: Int) -> some View {
         HStack(spacing: 10) {
             if isEditing {
@@ -354,14 +355,19 @@ struct TodoListView: View {
                         .foregroundStyle(Color.red)
                 }
                 .buttonStyle(.borderless)
-                dragHandle(item)
             }
             TodoRow(item: item) {
                 toggle(item)
             }
+            if isEditing {
+                Image(systemName: "line.3.horizontal")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.leading, depth > 0 ? CGFloat(depth) * 16 : 0)
-        .onDrop(of: [UTType.plainText],
+        .onDrag { NSItemProvider(object: item.id.uuidString as NSString) }
+        .onDrop(of: dropTypes,
                 delegate: TodoRowDropDelegate(target: item) { draggedID, target in
             moveDragged(draggedID, onto: target)
         })
@@ -373,14 +379,6 @@ struct TodoListView: View {
             }
             moveSwipeButton(for: item)
         }
-    }
-
-    private func dragHandle(_ item: TodoItem) -> some View {
-        Image(systemName: "line.3.horizontal")
-            .font(.body)
-            .foregroundStyle(.secondary)
-            .contentShape(Rectangle())
-            .onDrag { NSItemProvider(object: item.id.uuidString as NSString) }
     }
 
     private func groupHeader(_ group: ListGroup) -> some View {
@@ -436,13 +434,18 @@ struct TodoListView: View {
                                 .foregroundStyle(Color.red)
                         }
                         .buttonStyle(.borderless)
-                        dragHandle(item)
                     }
                     TodoRow(item: item) {
                         toggle(item)
                     }
+                    if isEditing {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .onDrop(of: [UTType.plainText],
+                .onDrag { NSItemProvider(object: item.id.uuidString as NSString) }
+                .onDrop(of: dropTypes,
                         delegate: TodoRowDropDelegate(target: item) { draggedID, target in
                     moveDragged(draggedID, onto: target)
                 })
