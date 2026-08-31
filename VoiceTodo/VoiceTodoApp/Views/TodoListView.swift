@@ -1,66 +1,5 @@
 import SwiftUI
 import SwiftData
-import UniformTypeIdentifiers
-
-// MARK: - Drag & drop delegates (onDrag + onDrop, reliable inside List)
-//
-// NOTE on UTType matching: NSItemProvider(object: NSString) registers
-// "public.utf8-plain-text", NOT "public.plain-text". Matching plainText
-// alone silently rejects every drop. We therefore accept both types and
-// validate unconditionally.
-
-/// Drop target = a to-do row. Dropping here reorders within the list or
-/// moves the dragged item into the target row's list at that position.
-private struct TodoRowDropDelegate: DropDelegate {
-    let target: TodoItem
-    let perform: (_ draggedID: UUID, _ target: TodoItem) -> Void
-
-    func validateDrop(info: DropInfo) -> Bool { true }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        guard let provider = info.itemProviders(for: dropTypes).first else { return false }
-        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
-            guard let string = object as? String,
-                  let draggedID = UUID(uuidString: string) else { return }
-            DispatchQueue.main.async {
-                perform(draggedID, target)
-            }
-        }
-        return true
-    }
-}
-
-/// Drop target = a section header. Dropping here appends the dragged item
-/// to that list (end position).
-private struct ListHeaderDropDelegate: DropDelegate {
-    let list: TodoList?
-    let perform: (_ draggedID: UUID, _ list: TodoList?) -> Void
-
-    func validateDrop(info: DropInfo) -> Bool { true }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        guard let provider = info.itemProviders(for: dropTypes).first else { return false }
-        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
-            guard let string = object as? String,
-                  let draggedID = UUID(uuidString: string) else { return }
-            DispatchQueue.main.async {
-                perform(draggedID, list)
-            }
-        }
-        return true
-    }
-}
-
-/// Type identifiers accepted by our drop targets (see NOTE above).
-private let dropTypes: [UTType] = [.plainText, .utf8PlainText]
 
 struct TodoListView: View {
     @Environment(\.modelContext) private var modelContext
@@ -74,9 +13,6 @@ struct TodoListView: View {
     @State private var filterListID: UUID?
     @State private var filterTagID: UUID?
 
-    /// Self-managed edit mode (independent of the system EditButton env):
-    /// when active, every row shows a red minus (delete) + a drag handle (≡).
-    @State private var isEditing = false
     /// Lists whose sections are collapsed (items hidden, header kept).
     @State private var collapsedLists: Set<UUID> = []
 
@@ -211,13 +147,6 @@ struct TodoListView: View {
                         Label("管理列表", systemImage: "folder")
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(isEditing ? "完成" : "编辑") {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isEditing.toggle()
-                        }
-                    }
-                }
                 if layout == .flat {
                     ToolbarItem(placement: .topBarTrailing) { listFilterMenu }
                     ToolbarItem(placement: .topBarTrailing) { tagFilterMenu }
@@ -302,121 +231,65 @@ struct TodoListView: View {
         String(repeating: "　", count: depth)
     }
 
-    // MARK: - Grouped list
+    // MARK: - Grouped list (UIKit drag & drop)
 
+    @MainActor
     private var groupedList: some View {
-        List {
-            ForEach(groups) { group in
-                Section {
-                    if !collapsedLists.contains(group.id) {
-                        ForEach(group.items) { item in
-                            row(item, depth: group.depth)
-                        }
-                        .onDelete { offsets in delete(at: offsets, in: group) }
-                    }
-                } header: {
-                    groupHeader(group)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                toggleCollapse(group.id)
-                            }
-                        }
-                        .onDrop(of: dropTypes,
-                                delegate: ListHeaderDropDelegate(list: group.list) { draggedID, list in
-                            moveDraggedToList(draggedID, list)
-                        })
-                }
-            }
+        DragDropListView(
+            sections: dragSections,
+            onToggle: { toggle($0) },
+            onDelete: { deleteOne($0) },
+            onCollapse: { toggleCollapse($0) },
+            onMove: { moveByDrag($0, toListID: $1, toIndex: $2) }
+        )
+    }
+
+    /// Sections consumed by the UIKit collection view (mirror of `groups`).
+    private var dragSections: [DragDropListView.Section] {
+        groups.map { g in
+            DragDropListView.Section(
+                listID: g.list?.id,
+                name: g.title,
+                color: g.color,
+                icon: g.icon,
+                depth: g.depth,
+                count: g.items.count,
+                collapsed: collapsedLists.contains(g.id),
+                items: g.items
+            )
         }
     }
 
     private func toggleCollapse(_ id: UUID) {
-        if collapsedLists.contains(id) {
-            collapsedLists.remove(id)
+        withAnimation(.easeInOut(duration: 0.2)) {
+            if collapsedLists.contains(id) {
+                collapsedLists.remove(id)
+            } else {
+                collapsedLists.insert(id)
+            }
+        }
+    }
+
+    /// Persist a drag/drop move: reassign the item to `toListID` (or nil =
+    /// unassigned) and reorder it to visual index `toIndex` within that list.
+    private func moveByDrag(_ item: TodoItem, toListID: UUID?, toIndex: Int) {
+        guard let dragged = items.first(where: { $0.id == item.id }) else { return }
+        let targetList: TodoList?
+        if let toListID {
+            guard let list = lists.first(where: { $0.id == toListID }) else { return }
+            targetList = list
         } else {
-            collapsedLists.insert(id)
+            targetList = nil
         }
-    }
-
-    /// A single to-do row. In edit mode: red minus (delete) on the leading
-    /// edge, a ≡ hint on the trailing edge. The whole row is draggable
-    /// (long-press anywhere, e.g. the ≡): drop on any row to reorder or
-    /// change list, drop on a section header to append to that list.
-    /// Non-edit mode: swipe = delete + move.
-    private func row(_ item: TodoItem, depth: Int) -> some View {
-        HStack(spacing: 10) {
-            if isEditing {
-                Button(role: .destructive) {
-                    deleteOne(item)
-                } label: {
-                    Image(systemName: "minus.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(Color.red)
-                }
-                .buttonStyle(.borderless)
-            }
-            TodoRow(item: item) {
-                toggle(item)
-            }
-            if isEditing {
-                Image(systemName: "line.3.horizontal")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-            }
+        dragged.list = targetList
+        var arr = itemsSorted(forList: toListID)
+        arr.removeAll { $0.id == dragged.id }
+        let index = min(max(toIndex, 0), arr.count)
+        arr.insert(dragged, at: index)
+        for (position, e) in arr.enumerated() {
+            e.position = position
         }
-        .padding(.leading, depth > 0 ? CGFloat(depth) * 16 : 0)
-        .onDrag { NSItemProvider(object: item.id.uuidString as NSString) }
-        .onDrop(of: dropTypes,
-                delegate: TodoRowDropDelegate(target: item) { draggedID, target in
-            moveDragged(draggedID, onto: target)
-        })
-        .swipeActions(edge: .trailing) {
-            Button(role: .destructive) {
-                deleteOne(item)
-            } label: {
-                Label("删除", systemImage: "trash")
-            }
-            moveSwipeButton(for: item)
-        }
-    }
-
-    private func groupHeader(_ group: ListGroup) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: collapsedLists.contains(group.id) ? "chevron.right" : "chevron.down")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.tertiary)
-                .frame(width: 14)
-            if group.depth > 0 {
-                Rectangle()
-                    .fill(Color.clear)
-                    .frame(width: CGFloat(group.depth) * 16, height: 1)
-            }
-            Circle().fill(group.color).frame(width: 10, height: 10)
-            Image(systemName: group.icon)
-            Text(group.title)
-                .lineLimit(1)
-            Spacer()
-            Text("\(group.items.count)")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .font(.subheadline.weight(.semibold))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contextMenu {
-            if let list = group.list {
-                Button {
-                    listEditSheet = .edit(list)
-                } label: {
-                    Label("编辑名称 / 图标", systemImage: "pencil")
-                }
-                Button {
-                    listEditSheet = .newChild(list)
-                } label: {
-                    Label("新建子列表", systemImage: "folder.badge.plus")
-                }
-            }
-        }
+        try? storage.save()
     }
 
     // MARK: - Flat list
@@ -424,31 +297,9 @@ struct TodoListView: View {
     private var flatList: some View {
         List {
             ForEach(filteredItems) { item in
-                HStack(spacing: 10) {
-                    if isEditing {
-                        Button(role: .destructive) {
-                            deleteOne(item)
-                        } label: {
-                            Image(systemName: "minus.circle.fill")
-                                .font(.title3)
-                                .foregroundStyle(Color.red)
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                    TodoRow(item: item) {
-                        toggle(item)
-                    }
-                    if isEditing {
-                        Image(systemName: "line.3.horizontal")
-                            .font(.body)
-                            .foregroundStyle(.secondary)
-                    }
+                TodoRow(item: item) {
+                    toggle(item)
                 }
-                .onDrag { NSItemProvider(object: item.id.uuidString as NSString) }
-                .onDrop(of: dropTypes,
-                        delegate: TodoRowDropDelegate(target: item) { draggedID, target in
-                    moveDragged(draggedID, onto: target)
-                })
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) { deleteOne(item) } label: {
                         Label("删除", systemImage: "trash")
@@ -503,45 +354,9 @@ struct TodoListView: View {
         try? storage.delete(item)
     }
 
-    private func delete(at offsets: IndexSet, in group: ListGroup) {
-        for index in offsets {
-            deleteOne(group.items[index])
-        }
-    }
-
     private func deleteFlatItems(at offsets: IndexSet) {
         for index in offsets {
             deleteOne(filteredItems[index])
-        }
-    }
-
-    /// Drag & drop onto a row: reorder within the same list, or move the
-    /// dragged item into the target row's list at that position.
-    private func moveDragged(_ draggedID: UUID, onto target: TodoItem) {
-        guard let dragged = items.first(where: { $0.id == draggedID }),
-              dragged.id != target.id else { return }
-        let listID = target.list?.id
-        var arr = itemsSorted(forList: listID)
-        arr.removeAll { $0.id == dragged.id }
-        let index = arr.firstIndex { $0.id == target.id } ?? arr.count
-        arr.insert(dragged, at: index)
-        dragged.list = target.list
-        for (position, item) in arr.enumerated() {
-            item.position = position
-        }
-        try? storage.save()
-    }
-
-    /// Drag & drop onto a section header: move the dragged item into that
-    /// list, appended at the end.
-    private func moveDraggedToList(_ draggedID: UUID, _ list: TodoList?) {
-        guard let dragged = items.first(where: { $0.id == draggedID }) else { return }
-        if let list {
-            guard lists.contains(where: { $0.id == list.id }) else { return }
-            assign(dragged, to: list)
-        } else {
-            dragged.list = nil
-            try? storage.save()
         }
     }
 
