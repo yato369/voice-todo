@@ -50,7 +50,7 @@ struct TodoListView: View {
         return a.createdAt > b.createdAt
     }
 
-    private func itemsSorted(forList id: UUID) -> [TodoItem] {
+    private func itemsSorted(forList id: UUID?) -> [TodoItem] {
         items.filter { $0.list?.id == id }.sorted(by: sortInList)
     }
 
