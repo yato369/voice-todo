@@ -90,12 +90,6 @@ struct TodoListView: View {
         return path.reversed()
     }
 
-    /// The root ancestor highlighted in the first chip row.
-    private var selectedRootID: UUID? {
-        if let c = current { return ancestry(of: c).first?.id ?? c.id }
-        return nil
-    }
-
     /// Total tasks under a folder, including all descendant subfolders
     /// (direct tasks + every child subtree) — a parent chip shows the whole
     /// branch's workload at a glance.
@@ -133,7 +127,6 @@ struct TodoListView: View {
                 } else {
                     VStack(spacing: 0) {
                         breadcrumbChips
-                        childChipsRow
                         taskList
                     }
                 }
@@ -173,12 +166,17 @@ struct TodoListView: View {
         }
     }
 
-    // MARK: - Top chips (folder navigation)
+    // MARK: - Top chips (persistent breadcrumb navigation)
 
-    /// First row of chips: "全部" + root folders. Tap to navigate into a
-    /// folder; every folder chip is also a drop target for task moves.
+    /// One permanent breadcrumb strip: "全部" + every ancestor of the current
+    /// folder down to it (root → … → current), then the current folder's
+    /// children for drilling deeper. Because each visited level stays on screen
+    /// as its own crumb, no chips ever disappear — at 2nd/3rd/4th+ level you
+    /// always see the full chain and can tap any crumb to jump back.
     private var breadcrumbChips: some View {
-        let roots = rootLists
+        let path = current.map { ancestry(of: $0) } ?? []      // ancestors + current
+        let drillDowns = (current?.children ?? rootLists)
+            .sorted { $0.position < $1.position }              // drill targets
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 chip(
@@ -188,12 +186,22 @@ struct TodoListView: View {
                     count: items.count,
                     list: nil
                 ) { currentListID = nil; filterTagID = nil }
-                ForEach(roots) { list in
+                ForEach(path) { list in
                     chip(
                         title: list.name,
                         icon: list.iconName ?? "checklist",
                         color: list.color,
-                        isSelected: selectedRootID == list.id,
+                        isSelected: currentListID == list.id,
+                        count: totalItems(of: list),
+                        list: list
+                    ) { currentListID = list.id }
+                }
+                ForEach(drillDowns) { list in
+                    chip(
+                        title: list.name,
+                        icon: list.iconName ?? "checklist",
+                        color: list.color,
+                        isSelected: currentListID == list.id,
                         count: totalItems(of: list),
                         list: list
                     ) { currentListID = list.id }
@@ -201,33 +209,6 @@ struct TodoListView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-        }
-    }
-
-    /// When inside a folder that has children, show its subfolders as a second
-    /// chip row plus a "返回上级" back chip (nested navigation by level).
-    @ViewBuilder
-    private var childChipsRow: some View {
-        if let current, !current.children.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    backChip {
-                        currentListID = current.parent?.id
-                    }
-                    ForEach(current.children.sorted { $0.position < $1.position }) { list in
-                        chip(
-                            title: list.name,
-                            icon: list.iconName ?? "checklist",
-                            color: list.color,
-                            isSelected: currentListID == list.id,
-                            count: totalItems(of: list),
-                            list: list
-                        ) { currentListID = list.id }
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 6)
-            }
         }
     }
 
@@ -268,19 +249,6 @@ struct TodoListView: View {
             guard let targetList = list, let id = Self.itemID(fromPayloads: payloads) else { return false }
             return move(itemID: id, to: targetList)
         }
-    }
-
-    private func backChip(action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label("上级", systemImage: "arrow.uturn.backward")
-                .font(.footnote.weight(.semibold))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(Color.secondary.opacity(0.12))
-                .foregroundStyle(Color.primary)
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Task list (single stream)
