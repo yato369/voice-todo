@@ -9,13 +9,19 @@ struct TodoListView: View {
 
     @State private var activeSheet: SheetType?
     @State private var listEditSheet: ListEditSheet?
-    @State private var openItem: TodoItem?
     @State private var layout: ListLayout = .grouped
     @State private var filterListID: UUID?
     @State private var filterTagID: UUID?
 
     /// Lists whose sections are collapsed (items hidden, header kept).
     @State private var collapsedLists: Set<UUID> = []
+
+    /// The flattened grouped list rendered by the UI. The List is driven by
+    /// this array of plain rows (NOT live `@Query` data) so drag reorder only
+    /// mutates this array and never fights the move animation with model/
+    /// query updates — this is what eliminates the "index path does not exist"
+    /// / "invalid number of items in section" crashes.
+    @State private var displayRows: [GRow] = []
 
     private var storage: StorageServiceProtocol { StorageService(context: modelContext) }
 
@@ -42,15 +48,25 @@ struct TodoListView: View {
         case flat = "全部"
     }
 
-    /// A rendered group = one list at some tree depth, plus its items.
-    private struct ListGroup: Identifiable {
-        let id: UUID
-        let list: TodoList?       // nil for the unassigned fallback bucket
-        let title: String
-        let color: Color
-        let icon: String
-        let depth: Int
-        let items: [TodoItem]
+    /// Stable id used for the "未分类" header row and its collapse state.
+    private static let unassignedHeaderID =
+        UUID(uuidString: "00000000-0000-0000-0000-00000000C0DE")!
+
+    /// A row in the flattened grouped list: either a non-movable list header
+    /// or a movable task. Rendering them all in ONE collection lets the native
+    /// `onMove` reorder tasks inside a list AND across lists (dropping an item
+    /// under a different header reassigns it to that list).
+    private enum GRow: Identifiable {
+        case header(id: UUID, listID: UUID?, name: String, color: Color,
+                    icon: String, depth: Int, count: Int)
+        case item(TodoItem)
+
+        var id: UUID {
+            switch self {
+            case .header(let id, _, _, _, _, _, _): return id
+            case .item(let item): return item.id
+            }
+        }
     }
 
     // MARK: - Sorting
@@ -89,25 +105,31 @@ struct TodoListView: View {
         return out
     }
 
-    private var groups: [ListGroup] {
-        var out = flattenedLists.map { pair in
-            ListGroup(
-                id: pair.list.id,
-                list: pair.list,
-                title: pair.list.name,
-                color: pair.list.color,
-                icon: pair.list.iconName ?? "checklist",
-                depth: pair.depth,
-                items: itemsSorted(forList: pair.list.id)
-            )
+    /// Flattened, in order: each list's header (non-movable) followed by its
+    /// tasks, nested lists interleaved by tree depth. "未分类" acts as a
+    /// fallback header for any item whose `list` is nil.
+    private var groupedRows: [GRow] {
+        var rows: [GRow] = []
+        for pair in flattenedLists {
+            let sectionItems = itemsSorted(forList: pair.list.id)
+            rows.append(.header(id: pair.list.id, listID: pair.list.id,
+                                name: pair.list.name, color: pair.list.color,
+                                icon: pair.list.iconName ?? "checklist",
+                                depth: pair.depth, count: sectionItems.count))
+            if !collapsedLists.contains(pair.list.id) {
+                rows.append(contentsOf: sectionItems.map { .item($0) })
+            }
         }
-        // Safety net: items without a list (pre-backfill).
         let unassigned = items.filter { $0.list == nil }.sorted(by: sortInList)
         if !unassigned.isEmpty {
-            out.append(ListGroup(id: UUID(), list: nil, title: "未分类", color: .gray,
-                                 icon: "circle", depth: 0, items: unassigned))
+            rows.append(.header(id: Self.unassignedHeaderID, listID: nil,
+                                name: "未分类", color: .gray, icon: "circle",
+                                depth: 0, count: unassigned.count))
+            if !collapsedLists.contains(Self.unassignedHeaderID) {
+                rows.append(contentsOf: unassigned.map { .item($0) })
+            }
         }
-        return out
+        return rows
     }
 
     private var filteredItems: [TodoItem] {
@@ -148,6 +170,9 @@ struct TodoListView: View {
                         Label("管理列表", systemImage: "folder")
                     }
                 }
+                if layout == .grouped {
+                    ToolbarItem(placement: .topBarTrailing) { EditButton() }
+                }
                 if layout == .flat {
                     ToolbarItem(placement: .topBarTrailing) { listFilterMenu }
                     ToolbarItem(placement: .topBarTrailing) { tagFilterMenu }
@@ -167,11 +192,18 @@ struct TodoListView: View {
                     EditListSheet(list: nil, parentPreset: parent)
                 }
             }
-            .sheet(item: $openItem) { item in
-                TodoDetailView(item: item)
-            }
             .onAppear {
                 ensureDefaultList()
+                refreshDisplayRows()
+            }
+            .onChange(of: items.count) { _ in
+                refreshDisplayRows()
+            }
+            .onChange(of: lists.count) { _ in
+                refreshDisplayRows()
+            }
+            .onChange(of: collapsedLists) { _ in
+                refreshDisplayRows()
             }
         }
     }
@@ -235,18 +267,72 @@ struct TodoListView: View {
         String(repeating: "　", count: depth)
     }
 
-    // MARK: - Grouped list (UIKit drag & drop)
+    // MARK: - Grouped list (native List + onMove)
 
+    /// Grouped tasks rendered as ONE flattened `List`. Rows carry a `GRow`
+    /// identity; headers are `.moveDisabled`, tasks are movable via native
+    /// `onMove` (drag handle appears in edit mode). Moving a task under a
+    /// different list header reassigns it to that list.
     private var groupedList: some View {
-        DragDropListView(
-            modelContext: modelContext,
-            collapsed: collapsedLists,
-            onToggle: { toggle($0) },
-            onDelete: { deleteOne($0) },
-            onCollapse: { toggleCollapse($0) },
-            onMove: { moveByDrag($0, toListID: $1, toIndex: $2) },
-            onOpen: { openItem = $0 }
-        )
+        List {
+            ForEach(displayRows) { row in
+                switch row {
+                case .header(let id, _, let name, let color, let icon, let depth, let count):
+                    GroupedHeaderView(
+                        name: name, color: color, icon: icon,
+                        depth: depth, count: count,
+                        isCollapsed: collapsedLists.contains(id),
+                        onToggle: { toggleCollapse(id) }
+                    )
+                    .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
+                    .moveDisabled(true)
+                case .item(let item):
+                    TodoRow(item: item) { toggle(item) }
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) { deleteOne(item) } label: {
+                                Label("删除", systemImage: "trash")
+                            }
+                        }
+                }
+            }
+            .onMove(perform: moveRows)
+        }
+        .listStyle(.insetGrouped)
+    }
+
+    /// A tappable list header with a collapse chevron and item count.
+    private struct GroupedHeaderView: View {
+        let name: String
+        let color: Color
+        let icon: String
+        let depth: Int
+        let count: Int
+        let isCollapsed: Bool
+        let onToggle: () -> Void
+
+        var body: some View {
+            HStack(spacing: 8) {
+                Button(action: onToggle) {
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                Image(systemName: icon)
+                    .foregroundStyle(color)
+                    .font(.footnote)
+                Text(name)
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.leading, CGFloat(depth) * 16)
+            .contentShape(Rectangle())
+        }
     }
 
     private func toggleCollapse(_ id: UUID) {
@@ -259,26 +345,53 @@ struct TodoListView: View {
         }
     }
 
-    /// Persist a drag/drop move: reassign the item to `toListID` (or nil =
-    /// unassigned) and reorder it to visual index `toIndex` within that list.
-    private func moveByDrag(_ item: TodoItem, toListID: UUID?, toIndex: Int) {
-        guard let dragged = items.first(where: { $0.id == item.id }) else { return }
-        let targetList: TodoList?
-        if let toListID {
-            guard let list = lists.first(where: { $0.id == toListID }) else { return }
-            targetList = list
-        } else {
-            targetList = nil
+    /// Reorder tasks in the flattened list. Only the in-memory `displayRows`
+    /// array is mutated here (pure array move). The result is then written
+    /// back to SwiftData once. We NEVER modify model objects while the drag
+    /// animation is running, which is exactly what caused the previous
+    /// "index path does not exist" / "invalid number of items" crashes.
+    private func moveRows(from source: IndexSet, to destination: Int) {
+        guard source.count == 1, let fromIdx = source.first else { return }
+        guard case .item(let moved) = displayRows[fromIdx] else { return }
+
+        var rows = displayRows
+        rows.move(fromOffsets: source, toOffset: destination)
+        displayRows = rows
+
+        guard let newIdx = rows.firstIndex(where: { $0.id == moved.id }) else { return }
+
+        // Find the nearest list header above the task's new position.
+        var targetListID: UUID?
+        for i in stride(from: newIdx - 1, through: 0, by: -1) {
+            if case .header(_, let listID, _, _, _, _, _) = rows[i] {
+                targetListID = listID
+                break
+            }
         }
-        dragged.list = targetList
-        var arr = itemsSorted(forList: toListID)
-        arr.removeAll { $0.id == dragged.id }
-        let index = min(max(toIndex, 0), arr.count)
-        arr.insert(dragged, at: index)
-        for (position, e) in arr.enumerated() {
-            e.position = position
+        // Only accept a real list as destination (ignore the "未分类" bucket).
+        guard let newListID = targetListID,
+              let list = lists.first(where: { $0.id == newListID }) else { return }
+        moved.list = list
+
+        // Reassign in-list positions from the new flattened order.
+        var counter: [UUID: Int] = [:]
+        for row in rows {
+            if case .item(let item) = row, let key = item.list?.id {
+                let pos = counter[key] ?? 0
+                item.position = pos
+                counter[key] = pos + 1
+            }
         }
         try? storage.save()
+    }
+
+    // MARK: - Display row sync (rebuild from live data, no drag conflict)
+
+    /// Rebuild `displayRows` from the current `@Query` data. Called when the
+    /// underlying data changes (create/delete/toggle/move) and on appear. The
+    /// drag path avoids this by mutating only `displayRows` in place.
+    private func refreshDisplayRows() {
+        displayRows = groupedRows
     }
 
     // MARK: - Flat list
