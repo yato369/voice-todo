@@ -96,6 +96,13 @@ struct TodoListView: View {
         return nil
     }
 
+    /// Total tasks under a folder, including all descendant subfolders
+    /// (direct tasks + every child subtree) — a parent chip shows the whole
+    /// branch's workload at a glance.
+    private func totalItems(of list: TodoList) -> Int {
+        list.items.count + list.children.reduce(0) { $0 + totalItems(of: $1) }
+    }
+
     // MARK: - Shown tasks
 
     /// Every task in the current scope (folder or all), tag-filtered & sorted.
@@ -187,7 +194,7 @@ struct TodoListView: View {
                         icon: list.iconName ?? "checklist",
                         color: list.color,
                         isSelected: selectedRootID == list.id,
-                        count: list.items.count,
+                        count: totalItems(of: list),
                         list: list
                     ) { currentListID = list.id }
                 }
@@ -213,7 +220,7 @@ struct TodoListView: View {
                             icon: list.iconName ?? "checklist",
                             color: list.color,
                             isSelected: currentListID == list.id,
-                            count: list.items.count,
+                            count: totalItems(of: list),
                             list: list
                         ) { currentListID = list.id }
                     }
