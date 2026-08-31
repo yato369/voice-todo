@@ -108,7 +108,7 @@ struct TodoDetailView: View {
 
     private func tagRow(_ tag: Tag) -> some View {
         let isOn = item.tags.contains { $0.id == tag.id }
-        let hasColor = tag.color != .accentColor
+        let hasColor = tag.color != Color.accentColor
         return Button {
             toggleTag(tag)
         } label: {
@@ -118,7 +118,7 @@ struct TodoDetailView: View {
                 Spacer()
                 if isOn {
                     Image(systemName: "checkmark")
-                        .foregroundStyle(.accentColor)
+                        .foregroundStyle(Color.accentColor)
                 }
             }
         }
