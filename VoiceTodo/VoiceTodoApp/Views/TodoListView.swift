@@ -100,17 +100,30 @@ struct TodoListView: View {
     // MARK: - Shown tasks
 
     /// Every task in the current scope (folder or all), tag-filtered & sorted.
+    /// When inside a folder, ALL tasks under it — including every level below —
+    /// are shown in one stream, grouped list-by-list (each kept in manual order).
     private var visibleItems: [TodoItem] {
-        var base: [TodoItem]
         if let current {
-            base = current.items
-        } else {
-            base = Array(items)
+            var flattened: [TodoItem] = []
+            flattenItems(of: current, into: &flattened)
+            let base = filterTags(flattened)
+            return base // already grouped & ordered by flattenItems
         }
-        if let filterTagID {
-            base = base.filter { $0.tags.contains { $0.id == filterTagID } }
+        return filterTags(Array(items)).sorted(by: sortFlat)
+    }
+
+    /// Collect a folder's tasks (in manual order) then recurse into each child
+    /// subtree, so the stream shows this level and everything below it.
+    private func flattenItems(of list: TodoList, into out: inout [TodoItem]) {
+        out += list.items.sorted(by: sortInList)
+        for child in list.children.sorted(by: { $0.position < $1.position }) {
+            flattenItems(of: child, into: &out)
         }
-        return current != nil ? base.sorted(by: sortInList) : base.sorted(by: sortFlat)
+    }
+
+    private func filterTags(_ base: [TodoItem]) -> [TodoItem] {
+        guard let filterTagID else { return base }
+        return base.filter { $0.tags.contains { $0.id == filterTagID } }
     }
 
     // MARK: - Body
