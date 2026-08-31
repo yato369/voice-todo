@@ -404,7 +404,12 @@ struct TodoListView: View {
         rows.move(fromOffsets: source, toOffset: destination)
         displayRows = rows
 
-        guard let newIdx = rows.firstIndex(where: { $0.id == moved.id }) else { return }
+        // Find the moved item's new index by its model `UUID` (not the row's
+        // string id). `$0.id` is `GRow`'s `String` id, which can't equal `UUID`.
+        guard let newIdx = rows.firstIndex(where: {
+            if case .item(let it) = $0 { return it.id == moved.id }
+            return false
+        }) else { return }
 
         // Find the nearest list header above the task's new position.
         var targetListID: UUID?
