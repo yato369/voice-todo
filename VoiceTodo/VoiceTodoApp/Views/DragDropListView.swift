@@ -430,11 +430,14 @@ struct DragDropListView: UIViewRepresentable {
         /// Insert `item` into section at `indexPath.item` (clamped).
         private func insertItem(_ item: TodoItem, at ip: IndexPath) {
             guard ip.section < sections.count else { return }
-            var sec = sections[ip.section]
+            let sec = sections[ip.section]
             let idx = min(max(ip.item, 0), sec.items.count)
-            sec.items.insert(item, at: idx)
-            sec.count = sec.items.count
-            sections[ip.section] = sec
+            var newArr = sec.items
+            newArr.insert(item, at: idx)
+            sections[ip.section] = Section(listID: sec.listID, name: sec.name,
+                                           color: sec.color, icon: sec.icon, depth: sec.depth,
+                                           count: newArr.count, collapsed: sec.collapsed,
+                                           items: newArr)
         }
 
         /// Write the current in-memory arrangement into SwiftData and save.
