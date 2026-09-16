@@ -55,6 +55,7 @@ struct TodoDetailView: View {
             tagSection
             imageSection
             linkSection
+            dateSection
             reminderSection
             deleteSection
         }
@@ -296,6 +297,38 @@ struct TodoDetailView: View {
         guard URL(string: link) != nil else { return }
         item.links.append(link)
         newLink = ""
+        try? storage.save()
+    }
+
+    @ViewBuilder
+    private var dateSection: some View {
+        Section("日期") {
+            DatePicker(
+                "日历日期",
+                selection: Binding(
+                    get: { item.calendarDate },
+                    set: { setDate($0) }
+                ),
+                displayedComponents: [.date, .hourAndMinute]
+            )
+            Text(item.calendarDate.formatted(.dateTime.year().month().day()))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Update the editable date and keep any scheduled reminder in sync.
+    private func setDate(_ newDate: Date) {
+        item.date = newDate
+        if item.reminderDate != nil {
+            item.reminderDate = newDate
+            NotificationService.shared.scheduleReminder(
+                id: item.id.uuidString,
+                title: "待办提醒",
+                body: item.text,
+                at: newDate
+            )
+        }
         try? storage.save()
     }
 

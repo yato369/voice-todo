@@ -6,9 +6,16 @@ struct ReminderEditView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var item: TodoItem
 
-    @State private var date: Date = Date().addingTimeInterval(60 * 60)
+    @State private var date: Date
 
     private var storage: StorageServiceProtocol { StorageService(context: modelContext) }
+
+    /// Default picker shows the current calendar date, so editing a reminder
+    /// naturally keeps the calendar date and reminder time in sync.
+    init(item: TodoItem) {
+        self.item = item
+        _date = State(initialValue: item.reminderDate ?? item.calendarDate)
+    }
 
     var body: some View {
         Form {
@@ -45,6 +52,7 @@ struct ReminderEditView: View {
             _ = await NotificationService.shared.requestAuthorization()
         }
         item.reminderDate = date
+        item.date = date
         try? storage.save()
         NotificationService.shared.scheduleReminder(
             id: item.id.uuidString,

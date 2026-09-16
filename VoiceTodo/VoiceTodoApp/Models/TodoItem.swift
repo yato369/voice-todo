@@ -12,6 +12,11 @@ final class TodoItem {
     var completedAt: Date?
     var reminderDate: Date?
 
+    /// Editable calendar date. Defaults to `createdAt` (nil → use creation date).
+    /// This single date drives both the built-in calendar position and the
+    /// reminder time, so they stay consistent (`date ?? createdAt`).
+    var date: Date?
+
     /// The category list this to-do belongs to (nil pending default backfill).
     var list: TodoList?
 
@@ -34,7 +39,8 @@ final class TodoItem {
         isCompleted: Bool = false,
         completedAt: Date? = nil,
         reminderDate: Date? = nil,
-        position: Int = 0
+        position: Int = 0,
+        date: Date? = nil
     ) {
         self.text = text
         self.audioFileName = audioFileName
@@ -43,9 +49,11 @@ final class TodoItem {
         self.completedAt = completedAt
         self.reminderDate = reminderDate
         self.position = position
+        self.date = date
     }
 
+    /// The date shown in the built-in calendar: explicit `date` or creation date.
     var calendarDate: Date {
-        createdAt
+        date ?? createdAt
     }
 }

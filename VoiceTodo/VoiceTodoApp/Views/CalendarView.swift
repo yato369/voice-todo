@@ -17,8 +17,8 @@ struct CalendarView: View {
 
     private var itemsOnSelectedDate: [TodoItem] {
         items
-            .filter { calendar.isDate($0.createdAt, inSameDayAs: selectedDate) }
-            .sorted { $0.createdAt > $1.createdAt }
+            .filter { calendar.isDate($0.calendarDate, inSameDayAs: selectedDate) }
+            .sorted { $0.calendarDate > $1.calendarDate }
     }
 
     var body: some View {
@@ -137,7 +137,7 @@ struct CalendarView: View {
     }
 
     private func items(for date: Date) -> [TodoItem] {
-        items.filter { calendar.isDate($0.createdAt, inSameDayAs: date) }
+        items.filter { calendar.isDate($0.calendarDate, inSameDayAs: date) }
     }
 
     private func toggle(_ item: TodoItem) {
